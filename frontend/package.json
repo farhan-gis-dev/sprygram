@@ -1,0 +1,42 @@
+{
+  "name": "sprygram-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack -p 5177 -H localhost",
+    "dev:clean": "node -e \"const fs=require('fs');['.next','.next-dev','tsconfig.tsbuildinfo'].forEach((d)=>fs.rmSync(d,{recursive:true,force:true}));console.log('Cleaned Next caches and TypeScript build info');\"",
+    "build": "next build",
+    "start": "next start -p 5177 -H localhost",
+    "typecheck": "next typegen && tsc --noEmit",
+    "lint": "eslint . --max-warnings=200"
+  },
+  "dependencies": {
+    "@mantine/core": "^8.3.5",
+    "@mantine/hooks": "^8.3.5",
+    "@mantine/notifications": "^8.3.5",
+    "@tabler/icons-react": "^3.35.0",
+    "next": "^15.3.0",
+    "oidc-client-ts": "^3.3.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-oidc-context": "^3.3.0",
+    "spry-apps-dropdown": "^3.0.4"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.4",
+    "@next/eslint-plugin-next": "^16.1.6",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
+    "autoprefixer": "^10.4.21",
+    "eslint": "^9.39.3",
+    "eslint-config-next": "^16.1.6",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "globals": "^17.4.0",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.3"
+  }
+}

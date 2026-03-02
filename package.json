@@ -1,0 +1,12 @@
+{
+  "name": "sprygram",
+  "private": true,
+  "scripts": {
+    "setup": "npm --prefix frontend install",
+    "dev": "npm --prefix frontend run dev",
+    "dev:clean": "npm --prefix frontend run dev:clean",
+    "build": "npm --prefix frontend run build",
+    "typecheck": "npm --prefix frontend run typecheck",
+    "start": "npm --prefix frontend run start"
+  }
+}
