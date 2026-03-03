@@ -31,7 +31,6 @@ import { sprygramApi } from '@/lib/api-client';
 import type { SprygramPost, SprygramProfile } from '@/lib/api-types';
 import { useApiAuth } from '@/lib/use-api-auth';
 import { formatRelativeTime, formatRelativeTimeWithSuffix } from '@/lib/time';
-import { playLikeSound } from '@/lib/sounds';
 import { FAVORITE_ACCOUNTS_KEY, SAVED_POSTS_KEY, hasStoredId, toggleStoredId } from '@/lib/client-storage';
 import { CommentsModal } from './comments-modal';
 import { MediaView } from './media-view';
@@ -102,6 +101,15 @@ export function PostCard({
     ? `/p/${post.id}`
     : new URL(`/p/${post.id}`, window.location.origin).toString();
 
+  const handleReport = async () => {
+    try {
+      await sprygramApi.submitReport({ entityType: 'post', entityId: post.id, reason: 'other' }, auth);
+      notifications.show({ color: 'orange', title: 'Reported', message: 'Your report has been submitted. We will review it shortly.' });
+    } catch (error: any) {
+      notifications.show({ color: 'red', title: 'Report failed', message: error.message });
+    }
+  };
+
   const toggleLike = async () => {
     if (liking) return;
     setLiking(true);
@@ -110,7 +118,6 @@ export function PostCard({
     const optimisticLiked = !post.isLiked;
     const optimisticCount = optimisticLiked ? post.likeCount + 1 : Math.max(0, post.likeCount - 1);
     patch({ isLiked: optimisticLiked, likeCount: optimisticCount });
-    if (optimisticLiked) playLikeSound();
 
     try {
       const res = optimisticLiked
@@ -135,24 +142,52 @@ export function PostCard({
     return () => window.clearTimeout(timer);
   }, [likePulse]);
 
-  const toggleSaved = () => {
-    const next = toggleStoredId(SAVED_POSTS_KEY, post.id);
-    setSaved(next);
-    notifications.show({
-      color: 'dark',
-      title: next ? 'Saved' : 'Removed',
-      message: next ? 'Post added to your saved collection.' : 'Post removed from your saved collection.',
-    });
+  const toggleSaved = async () => {
+    const optimisticNext = !saved;
+    setSaved(optimisticNext);
+    // Update localStorage cache immediately for fast UX across the app
+    toggleStoredId(SAVED_POSTS_KEY, post.id);
+
+    try {
+      if (optimisticNext) {
+        await sprygramApi.savePost(post.id, auth);
+      } else {
+        await sprygramApi.unsavePost(post.id, auth);
+      }
+      notifications.show({
+        color: 'dark',
+        title: optimisticNext ? 'Saved' : 'Removed',
+        message: optimisticNext ? 'Post added to your saved collection.' : 'Post removed from your saved collection.',
+      });
+    } catch (error: any) {
+      // Revert on failure
+      setSaved(!optimisticNext);
+      toggleStoredId(SAVED_POSTS_KEY, post.id);
+      notifications.show({ color: 'red', title: 'Save failed', message: error.message });
+    }
   };
 
-  const toggleFavorites = () => {
-    const next = toggleStoredId(FAVORITE_ACCOUNTS_KEY, post.author.userId);
-    setFavoritedAuthor(next);
-    notifications.show({
-      color: 'dark',
-      title: next ? 'Added to favourites' : 'Removed from favourites',
-      message: `@${post.author.username} ${next ? 'was added to' : 'was removed from'} favourites.`,
-    });
+  const toggleFavorites = async () => {
+    const optimisticNext = !favoritedAuthor;
+    setFavoritedAuthor(optimisticNext);
+    toggleStoredId(FAVORITE_ACCOUNTS_KEY, post.author.userId);
+
+    try {
+      if (optimisticNext) {
+        await sprygramApi.favouriteAccount(post.author.userId, auth);
+      } else {
+        await sprygramApi.unfavouriteAccount(post.author.userId, auth);
+      }
+      notifications.show({
+        color: 'dark',
+        title: optimisticNext ? 'Added to favourites' : 'Removed from favourites',
+        message: `@${post.author.username} ${optimisticNext ? 'was added to' : 'was removed from'} favourites.`,
+      });
+    } catch (error: any) {
+      setFavoritedAuthor(!optimisticNext);
+      toggleStoredId(FAVORITE_ACCOUNTS_KEY, post.author.userId);
+      notifications.show({ color: 'red', title: 'Action failed', message: error.message });
+    }
   };
 
   const copyLink = async () => {
@@ -223,7 +258,9 @@ export function PostCard({
               <Link href={`/u/${post.author.username}`}>
                 <Text size="sm" fw={700}>@{post.author.username}</Text>
               </Link>
-              <Text size="xs" c="dimmed">{formatRelativeTime(post.createdAt)}</Text>
+              <Text size="xs" c="dimmed">
+                {post.location ? `${post.location} · ${formatRelativeTime(post.createdAt)}` : formatRelativeTime(post.createdAt)}
+              </Text>
             </Stack>
           </Group>
 
@@ -243,7 +280,7 @@ export function PostCard({
                 </ActionIcon>
               </Menu.Target>
               <Menu.Dropdown>
-                <Menu.Item leftSection={<IconFlag3 size={15} />} onClick={() => notifications.show({ color: 'orange', title: 'Reported', message: 'Thanks. We will review this account.' })}>
+                <Menu.Item leftSection={<IconFlag3 size={15} />} onClick={() => void handleReport()}>
                   Report
                 </Menu.Item>
                 {!isOwnPost && post.author.followStatus !== 'none' ? (
@@ -263,7 +300,6 @@ export function PostCard({
                 <Menu.Item leftSection={<IconSend size={15} />} onClick={() => void sharePost()}>
                   Share
                 </Menu.Item>
-
                 <Menu.Item leftSection={<IconLink size={15} />} onClick={() => void copyLink()}>
                   Copy Link
                 </Menu.Item>
@@ -351,7 +387,7 @@ export function PostCard({
             <button type="button" className="w-fit text-xs text-muted" onClick={() => setCommentsOpen((prev) => !prev)}>
               {commentsOpen ? 'Hide comments' : `View all ${post.commentCount} comments`}
             </button>
-            <Text size="xs" c="dimmed">{formatRelativeTimeWithSuffix(post.createdAt)}</Text>
+            <Text size="xs" c="dimmed" tt="uppercase">{formatRelativeTimeWithSuffix(post.createdAt)}</Text>
           </Stack>
         </section>
       </article>
@@ -366,7 +402,7 @@ export function PostCard({
             />
             <Stack gap={1}>
               <Text fw={700}>{aboutProfile?.username || post.author.username}</Text>
-              <Text size="sm" c="dimmed">{aboutProfile?.displayName || post.author.displayName || 'Sprygram creator'}</Text>
+              <Text size="sm" c="dimmed">{aboutProfile?.displayName || post.author.displayName || 'Sprysnap creator'}</Text>
             </Stack>
           </Group>
           {aboutLoading ? <Text size="sm" c="dimmed">Loading account details...</Text> : null}
@@ -388,9 +424,6 @@ export function PostCard({
         shareUrl={postUrl}
         title="post"
         shareText={post.caption || `View @${post.author.username}'s post on Sprygram.`}
-        storyDriveFileId={!isOwnPost && post.media.length > 0 ? post.media[0].driveFileId : undefined}
-        storyPreviewUrl={!isOwnPost && media ? (media as any).url ?? null : null}
-        storyAuthorUsername={!isOwnPost ? post.author.username : undefined}
       />
     </>
   );

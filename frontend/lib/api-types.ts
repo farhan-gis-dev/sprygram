@@ -22,6 +22,7 @@ export type ProfileStats = {
   posts: number;
   followers: number;
   following: number;
+  totalLikesReceived: number;
 };
 
 export type SprygramProfile = {
@@ -70,6 +71,10 @@ export type SprygramPost = {
   media: SprygramMedia[];
   isLiked: boolean;
 };
+
+// Backwards-compat aliases used in some pages
+export type SprySnapPost = SprygramPost;
+export type SprySnapProfile = SprygramProfile;
 
 export type FeedResponse = {
   items: SprygramPost[];
@@ -294,4 +299,16 @@ export type ActivityResponse = {
   tab: 'likes' | 'comments' | 'story_replies' | 'reviews';
   items: ActivityItem[];
   nextCursor: string | null;
+};
+
+export type LiveRoomView = {
+  id: string;
+  workspaceId: string;
+  hostUserId: string;
+  hostUsername: string;
+  hostAvatarUrl: string | null;
+  title: string;
+  status: 'live' | 'ended';
+  viewerCount: number;
+  startedAt: string;
 };

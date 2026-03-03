@@ -15,9 +15,12 @@ import {
   IconLink,
   IconMessageCircle,
   IconSend,
+  IconStar,
+  IconStarFilled,
 } from '@tabler/icons-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { AD_INJECTION_INTERVAL } from '@/components/ads/ad-card';
 import { CommentsModal } from '@/components/post/comments-modal';
 import { FollowButton } from '@/components/profile/follow-button';
 import { ProfileAvatar } from '@/components/ui/profile-avatar';
@@ -27,7 +30,6 @@ import { sprygramApi } from '@/lib/api-client';
 import type { ReelItem, SprygramProfile } from '@/lib/api-types';
 import { FAVORITE_ACCOUNTS_KEY, SAVED_POSTS_KEY, hasStoredId, toggleStoredId } from '@/lib/client-storage';
 import { formatRelativeTime } from '@/lib/time';
-import { playLikeSound } from '@/lib/sounds';
 import { useApiAuth } from '@/lib/use-api-auth';
 import { useDevAuth } from '@/lib/dev-auth-context';
 
@@ -54,8 +56,10 @@ export default function ReelsPage() {
   const [likePulse, setLikePulse] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [reelDirection, setReelDirection] = useState<'up' | 'down'>('down');
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [videoLoading, setVideoLoading] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const wheelLockRef = useRef<number | null>(null);
-  const [reelVideoLoaded, setReelVideoLoaded] = useState(false);
 
   const load = async (cursor?: string | null) => {
     if (!cursor) setLoading(true);
@@ -89,11 +93,6 @@ export default function ReelsPage() {
     setFavoritedAuthor(hasStoredId(FAVORITE_ACCOUNTS_KEY, active.post.author.userId));
   }, [active?.post.id, active?.post.author.userId]);
 
-  // Reset video loading indicator when reel changes
-  useEffect(() => {
-    setReelVideoLoaded(false);
-  }, [active?.id]);
-
   const move = async (direction: 1 | -1) => {
     if (!active) return;
     setReelDirection(direction === 1 ? 'down' : 'up');
@@ -119,7 +118,6 @@ export default function ReelsPage() {
   const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
     if (Math.abs(event.deltaY) < 28) return;
     if (wheelLockRef.current) return;
-    if (commentsOpen) return;
 
     wheelLockRef.current = window.setTimeout(() => {
       if (wheelLockRef.current) window.clearTimeout(wheelLockRef.current);
@@ -148,13 +146,43 @@ export default function ReelsPage() {
 
       if (event.key === ' ') {
         event.preventDefault();
-        void move(1);
+        togglePlayPause();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [active, activeIndex, items.length, nextCursor, loadingMore]);
+
+  const togglePlayPause = useCallback(() => {
+    const vid = videoRef.current;
+    if (!vid) return;
+    if (vid.paused) {
+      void vid.play();
+      setIsPlaying(true);
+    } else {
+      vid.pause();
+      setIsPlaying(false);
+    }
+  }, []);
+
+  // Reset play state when active reel changes
+  useEffect(() => {
+    setIsPlaying(true);
+    setVideoLoading(true);
+  }, [active?.id]);
+
+  // Explicitly trigger play() when reel changes (autoPlay is unreliable in browsers)
+  useEffect(() => {
+    const vid = videoRef.current;
+    if (!vid) return;
+    const timer = window.setTimeout(() => {
+      vid.play().catch(() => {
+        // Autoplay policy may block; user interaction will still allow play via togglePlayPause
+      });
+    }, 50);
+    return () => window.clearTimeout(timer);
+  }, [active?.id]);
 
   const updateActive = (updater: (current: ReelItem) => ReelItem) => {
     setItems((previous) => previous.map((entry, index) => (index === activeIndex ? updater(entry) : entry)));
@@ -164,7 +192,6 @@ export default function ReelsPage() {
     if (!active) return;
     const optimistic = !active.post.isLiked;
     setLikePulse(true);
-    if (optimistic) playLikeSound();
 
     updateActive((entry) => ({
       ...entry,
@@ -299,28 +326,47 @@ export default function ReelsPage() {
               width: 'min(calc((92vh) * 0.5625), 472px)',
             }}
           >
-            {/* Video buffering overlay */}
-            {media?.mediaType === 'video' && !reelVideoLoaded ? (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60">
-                <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-              </div>
-            ) : null}
-
             {media?.mediaType === 'video' ? (
-              <video
-                key={media.id}
-                src={media.url}
-                className="h-full w-full object-cover"
-                autoPlay
-                muted
-                loop
-                playsInline
-                onCanPlay={() => setReelVideoLoaded(true)}
-              />
+              <>
+                <video
+                  ref={videoRef}
+                  key={media.id}
+                  src={media.url}
+                  className="h-full w-full object-cover"
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  onWaiting={() => setVideoLoading(true)}
+                  onCanPlay={() => setVideoLoading(false)}
+                  onPlaying={() => setVideoLoading(false)}
+                  onClick={togglePlayPause}
+                />
+                {/* Loading indicator */}
+                {videoLoading ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                    <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/30 border-t-white" />
+                  </div>
+                ) : null}
+                {/* Play/pause overlay button */}
+                {!isPlaying ? (
+                  <button
+                    type="button"
+                    className="absolute inset-0 flex items-center justify-center"
+                    onClick={togglePlayPause}
+                    aria-label="Play"
+                  >
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-black/50 text-white">
+                      <svg viewBox="0 0 24 24" fill="currentColor" className="h-8 w-8 translate-x-0.5">
+                        <path d="M8 5v14l11-7z" />
+                      </svg>
+                    </div>
+                  </button>
+                ) : null}
+              </>
             ) : media ? (
               <img src={media.url} alt="Reel media" className="h-full w-full object-cover" />
             ) : null}
-
 
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/35 to-transparent px-4 pb-5 pt-16 text-white">
               <Group justify="space-between" align="flex-start" wrap="nowrap">
@@ -336,11 +382,10 @@ export default function ReelsPage() {
                         @{active.post.author.username}
                       </button>
                       {viewer?.userId !== active.post.author.userId ? (
-                        <div className="[&>button]:rounded-md [&>button]:border-white/40 [&>button]:bg-white/20 [&>button]:px-2.5 [&>button]:text-xs [&>button]:text-white [&>button]:hover:bg-white/30">
-                          <FollowButton
-                            size="xs"
+                        <FollowButton
                             targetUserId={active.post.author.userId}
                             initialStatus={active.post.author.followStatus}
+                            reelsVariant
                             onStatusChange={(next) => {
                               updateActive((entry) => ({
                                 ...entry,
@@ -354,7 +399,6 @@ export default function ReelsPage() {
                               }));
                             }}
                           />
-                        </div>
                       ) : null}
                     </Group>
                     {captionState.text ? (
@@ -375,6 +419,18 @@ export default function ReelsPage() {
                       </Text>
                     ) : null}
                     <Text size="xs" c="gray.3">{formatRelativeTime(active.createdAt)}</Text>
+                    {/* SpryAds sponsored label injected every N reels */}
+                    {(activeIndex + 1) % AD_INJECTION_INTERVAL === 0 ? (
+                      <a
+                        href="#"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-white/30 bg-black/40 px-3 py-1 text-xs font-semibold text-white backdrop-blur-sm hover:bg-black/60"
+                      >
+                        <span className="h-2 w-2 animate-pulse rounded-full bg-[#a78bfa]" />
+                        Sponsored · SpryAds
+                      </a>
+                    ) : null}
                   </Stack>
                 </Group>
 
@@ -405,23 +461,21 @@ export default function ReelsPage() {
               </Group>
             </div>
 
-            <div onWheel={(e) => e.stopPropagation()}>
-              <CommentsModal
-                opened={commentsOpen}
-                postId={active.post.id}
-                onClose={() => setCommentsOpen(false)}
-                viewer={viewer}
-                onCommentCountIncrement={() => {
-                  updateActive((entry) => ({
-                    ...entry,
-                    post: {
-                      ...entry.post,
-                      commentCount: entry.post.commentCount + 1,
-                    },
-                  }));
-                }}
-              />
-            </div>
+            <CommentsModal
+              opened={commentsOpen}
+              postId={active.post.id}
+              onClose={() => setCommentsOpen(false)}
+              viewer={viewer}
+              onCommentCountIncrement={() => {
+                updateActive((entry) => ({
+                  ...entry,
+                  post: {
+                    ...entry.post,
+                    commentCount: entry.post.commentCount + 1,
+                  },
+                }));
+              }}
+            />
           </div>
 
           <Stack gap="md" align="center" className="ml-5">
@@ -443,13 +497,18 @@ export default function ReelsPage() {
               {saved ? <IconBookmarkFilled size={27} className="text-[#262626]" /> : <IconBookmark size={27} className="text-[#262626]" />}
             </ActionIcon>
 
-            <button
-              type="button"
-              className="rounded-full border border-border px-3 py-1 text-xs font-semibold transition hover:bg-gray-50"
+            <ActionIcon
+              variant="transparent"
+              color="gray"
+              size="xl"
               onClick={toggleFavorites}
+              aria-label={favoritedAuthor ? 'Remove from favourites' : 'Add to favourites'}
+              title={favoritedAuthor ? 'Remove from favourites' : 'Add to favourites'}
             >
-              {favoritedAuthor ? 'Favourited' : 'Favourite'}
-            </button>
+              {favoritedAuthor
+                ? <IconStarFilled size={27} color="#f5a623" />
+                : <IconStar size={27} className="text-[#262626]" />}
+            </ActionIcon>
           </Stack>
 
           <div className="absolute right-0 top-1/2 flex -translate-y-1/2 flex-col gap-3">
@@ -487,7 +546,7 @@ export default function ReelsPage() {
             />
             <Stack gap={1}>
               <Text fw={700}>{aboutProfile?.username || active.post.author.username}</Text>
-              <Text size="sm" c="dimmed">{aboutProfile?.displayName || active.post.author.displayName || 'Sprygram creator'}</Text>
+              <Text size="sm" c="dimmed">{aboutProfile?.displayName || active.post.author.displayName || 'Sprysnap creator'}</Text>
             </Stack>
           </Group>
           {aboutLoading ? <Text size="sm" c="dimmed">Loading account details...</Text> : null}
@@ -508,9 +567,6 @@ export default function ReelsPage() {
         shareUrl={postUrl}
         title="reel"
         shareText={active.post.caption || `Check out @${active.post.author.username}'s reel on Sprygram.`}
-        storyDriveFileId={viewer?.userId !== active.post.author.userId && active.post.media.length > 0 ? active.post.media[0].driveFileId : undefined}
-        storyPreviewUrl={viewer?.userId !== active.post.author.userId && media ? (media as any).url ?? null : null}
-        storyAuthorUsername={viewer?.userId !== active.post.author.userId ? active.post.author.username : undefined}
       />
     </>
   );

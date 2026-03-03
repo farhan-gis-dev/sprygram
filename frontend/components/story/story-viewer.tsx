@@ -1,17 +1,15 @@
 'use client';
 
-import { ActionIcon, Group, Loader, Menu, Modal, Stack, Text, TextInput } from '@mantine/core';
+import { ActionIcon, Group, Modal, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconChevronLeft,
   IconChevronRight,
-  IconDotsVertical,
   IconHeart,
   IconHeartFilled,
   IconPlayerPause,
   IconPlayerPlay,
   IconSend,
-  IconTrash,
   IconX,
 } from '@tabler/icons-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -28,12 +26,13 @@ type Props = {
   opened: boolean;
   onClose: () => void;
   onAccountCompleted?: (username: string) => void;
+  viewerUserId?: string | null;
 };
 
 const IMAGE_STORY_DURATION_MS = 6000;
 const QUICK_REACTIONS = ['\u2764\uFE0F', '\u{1F525}', '\u{1F60D}', '\u{1F44F}', '\u{1F602}', '\u{1F64C}'];
 
-export function StoryViewer({ username, usernames = [], opened, onClose, onAccountCompleted }: Props) {
+export function StoryViewer({ username, usernames = [], opened, onClose, onAccountCompleted, viewerUserId }: Props) {
   const auth = useApiAuth();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const imageElapsedRef = useRef(0);
@@ -64,20 +63,14 @@ export function StoryViewer({ username, usernames = [], opened, onClose, onAccou
   const [shareOpen, setShareOpen] = useState(false);
   const [storyLiked, setStoryLiked] = useState<Record<string, boolean>>({});
   const [pendingEdge, setPendingEdge] = useState<'first' | 'last'>('first');
-  const [mediaLoaded, setMediaLoaded] = useState(false);
-  const [viewerUsername, setViewerUsername] = useState<string | null>(null);
-  const [deletingStory, setDeletingStory] = useState(false);
 
   const activeUsername = orderedUsernames[activeUsernameIndex] || username || null;
   const stories = storyData?.items || [];
   const activeStory = stories[activeIndex] || null;
+  const isOwnStory = Boolean(viewerUserId && storyData?.profile.userId && viewerUserId === storyData.profile.userId);
   const storyShareUrl = activeUsername && typeof window !== 'undefined'
     ? new URL(`/u/${encodeURIComponent(activeUsername)}`, window.location.origin).toString()
     : '';
-
-  const shareStoryDriveFileId = (activeStory && viewerUsername !== storyData?.profile.username)
-    ? activeStory.mediaUrl.match(/\/media\/files\/([^/]+)\/stream/)?.[1]
-    : undefined;
 
   useEffect(() => {
     if (!opened) return;
@@ -86,19 +79,6 @@ export function StoryViewer({ username, usernames = [], opened, onClose, onAccou
     sessionViewedRef.current = {};
     completedAccountsRef.current = new Set();
   }, [opened, initialIndex]);
-
-  // Load current viewer's profile so we know whether to show "Add to my story" button
-  useEffect(() => {
-    if (!opened || !auth.token) return;
-    sprygramApi.getMyProfile(auth)
-      .then((profile) => setViewerUsername(profile.username))
-      .catch(() => setViewerUsername(null));
-  }, [opened, auth.token, auth.workspaceId]);
-
-  // Reset media-loaded state when story changes
-  useEffect(() => {
-    setMediaLoaded(false);
-  }, [activeStory?.id]);
 
   useEffect(() => {
     if (!opened || !activeUsername || !auth.token) return;
@@ -210,7 +190,6 @@ export function StoryViewer({ username, usernames = [], opened, onClose, onAccou
 
   useEffect(() => {
     if (!opened || !activeStory || paused || activeStory.mediaType === 'video') return undefined;
-    if (!mediaLoaded) return undefined;
 
     const tick = (timestamp: number) => {
       if (imageLastTickRef.current == null) {
@@ -239,7 +218,7 @@ export function StoryViewer({ username, usernames = [], opened, onClose, onAccou
       imageFrameRef.current = null;
       imageLastTickRef.current = null;
     };
-  }, [opened, activeStory?.id, paused, currentDurationMs, mediaLoaded]);
+  }, [opened, activeStory?.id, paused, currentDurationMs]);
 
   useEffect(() => {
     if (!activeStory || activeStory.mediaType !== 'video') return;
@@ -311,26 +290,6 @@ export function StoryViewer({ username, usernames = [], opened, onClose, onAccou
     setStoryLiked((previousValue) => ({ ...previousValue, [activeStory.id]: true }));
   };
 
-  const deleteActiveStory = async () => {
-    if (!activeStory || deletingStory) return;
-    setDeletingStory(true);
-    try {
-      await sprygramApi.deleteStory(activeStory.id, auth);
-      const remaining = stories.filter((s) => s.id !== activeStory.id);
-      if (!remaining.length) {
-        closeViewer();
-        return;
-      }
-      setStoryData((prev) => prev ? { ...prev, items: remaining } : prev);
-      setActiveIndex((prev) => Math.min(prev, remaining.length - 1));
-      notifications.show({ color: 'teal', title: 'Deleted', message: 'Story removed.' });
-    } catch (error: any) {
-      notifications.show({ color: 'red', title: 'Delete failed', message: error.message || 'Could not delete story.' });
-    } finally {
-      setDeletingStory(false);
-    }
-  };
-
   const closeViewer = () => {
     completeAccountIfFinished(activeUsername, stories);
     onClose();
@@ -365,7 +324,7 @@ export function StoryViewer({ username, usernames = [], opened, onClose, onAccou
           <div className="absolute left-2 right-2 top-2 z-20 flex gap-1">
             {progress.map((value, index) => (
               <div key={`${stories[index]?.id || index}`} className="h-[3px] flex-1 rounded bg-white/25">
-                <div className="h-full rounded bg-white transition-[width] duration-75" style={{ width: `${value}%` }} />
+                <div className="h-full rounded bg-white" style={{ width: `${value}%` }} />
               </div>
             ))}
           </div>
@@ -391,54 +350,20 @@ export function StoryViewer({ username, usernames = [], opened, onClose, onAccou
                     </Stack>
                   </Group>
 
-                  <Group gap={2}>
-                    <ActionIcon
-                      variant="subtle"
-                      color="gray"
-                      className="text-white hover:bg-white/10"
-                      onClick={() => setPaused((previousValue) => !previousValue)}
-                      aria-label={paused ? 'Play story' : 'Pause story'}
-                      title={paused ? 'Play story' : 'Pause story'}
-                    >
-                      {paused ? <IconPlayerPlay size={18} /> : <IconPlayerPause size={18} />}
-                    </ActionIcon>
-                    {viewerUsername && viewerUsername === storyData?.profile.username ? (
-                      <Menu position="bottom-end" withArrow shadow="md">
-                        <Menu.Target>
-                          <ActionIcon
-                            variant="subtle"
-                            color="gray"
-                            className="text-white hover:bg-white/10"
-                            loading={deletingStory}
-                            aria-label="Story options"
-                            title="Story options"
-                          >
-                            <IconDotsVertical size={18} />
-                          </ActionIcon>
-                        </Menu.Target>
-                        <Menu.Dropdown>
-                          <Menu.Item
-                            color="red"
-                            leftSection={<IconTrash size={15} />}
-                            onClick={() => void deleteActiveStory()}
-                          >
-                            Delete this story
-                          </Menu.Item>
-                        </Menu.Dropdown>
-                      </Menu>
-                    ) : null}
-                  </Group>
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    className="text-white hover:bg-white/10"
+                    onClick={() => setPaused((previousValue) => !previousValue)}
+                    aria-label={paused ? 'Play story' : 'Pause story'}
+                    title={paused ? 'Play story' : 'Pause story'}
+                  >
+                    {paused ? <IconPlayerPlay size={18} /> : <IconPlayerPause size={18} />}
+                  </ActionIcon>
                 </Group>
               </div>
 
-              <div className="flex-1 relative">
-                {/* Blur + spinner overlay while media is loading */}
-                {!mediaLoaded ? (
-                  <div className="absolute inset-0 z-10 flex items-center justify-center backdrop-blur-sm bg-black/40">
-                    <Loader color="white" size="sm" />
-                  </div>
-                ) : null}
-
+              <div className="flex-1">
                 {activeStory.mediaType === 'video' ? (
                   <video
                     key={activeStory.id}
@@ -448,7 +373,6 @@ export function StoryViewer({ username, usernames = [], opened, onClose, onAccou
                     autoPlay
                     muted
                     playsInline
-                    onCanPlay={() => setMediaLoaded(true)}
                     onLoadedMetadata={(event) => {
                       const duration = Number.isFinite(event.currentTarget.duration) && event.currentTarget.duration > 0
                         ? Math.max(3000, Math.min(event.currentTarget.duration * 1000, 15000))
@@ -462,35 +386,32 @@ export function StoryViewer({ username, usernames = [], opened, onClose, onAccou
                     onEnded={next}
                   />
                 ) : (
-                  <img
-                    src={activeStory.mediaUrl}
-                    alt="Story"
-                    className="h-full w-full object-contain"
-                    onLoad={() => setMediaLoaded(true)}
-                  />
+                  <img src={activeStory.mediaUrl} alt="Story" className="h-full w-full object-contain" />
                 )}
               </div>
 
               <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/95 via-black/65 to-transparent px-3 pb-3 pt-20">
                 <Stack gap="xs">
-                  <Group gap={6}>
-                    {QUICK_REACTIONS.map((emoji) => (
-                      <button
-                        key={emoji}
-                        type="button"
-                        className="rounded-full bg-white/12 px-3 py-1 text-sm transition hover:bg-white/20"
-                        onClick={() => void submitReply(emoji)}
-                      >
-                        {emoji}
-                      </button>
-                    ))}
-                  </Group>
+                  {!isOwnStory ? (
+                    <Group gap={6}>
+                      {QUICK_REACTIONS.map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          className="rounded-full bg-white/12 px-3 py-1 text-sm transition hover:bg-white/20"
+                          onClick={() => void submitReply(emoji)}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </Group>
+                  ) : null}
 
                   <Group wrap="nowrap" align="center">
                     <TextInput
                       value={reply}
                       onChange={(event) => setReply(event.currentTarget.value)}
-                      placeholder="Reply to story"
+                      placeholder={isOwnStory ? 'Add a comment...' : 'Reply to story'}
                       className="flex-1"
                       styles={{
                         input: {
@@ -506,25 +427,27 @@ export function StoryViewer({ username, usernames = [], opened, onClose, onAccou
                       }}
                     />
 
-                    <ActionIcon
-                    variant="subtle"
-                    color="gray"
-                    className="text-white hover:bg-white/10"
-                    onClick={() => void likeStory()}
-                    aria-label="Like story"
-                    title="Like story"
-                  >
-                      {storyLiked[activeStory.id] ? <IconHeartFilled size={22} color="#ef4444" /> : <IconHeart size={22} />}
-                    </ActionIcon>
+                    {!isOwnStory ? (
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        className="text-white hover:bg-white/10"
+                        onClick={() => void likeStory()}
+                        aria-label="Like story"
+                        title="Like story"
+                      >
+                        {storyLiked[activeStory.id] ? <IconHeartFilled size={22} color="#ef4444" /> : <IconHeart size={22} />}
+                      </ActionIcon>
+                    ) : null}
 
                     <ActionIcon
-                    variant="subtle"
-                    color="gray"
-                    className="text-white hover:bg-white/10"
-                    onClick={() => setShareOpen(true)}
-                    aria-label="Share story"
-                    title="Share story"
-                  >
+                      variant="subtle"
+                      color="gray"
+                      className="text-white hover:bg-white/10"
+                      onClick={() => setShareOpen(true)}
+                      aria-label="Share story"
+                      title="Share story"
+                    >
                       <IconSend size={20} />
                     </ActionIcon>
                   </Group>
@@ -547,10 +470,7 @@ export function StoryViewer({ username, usernames = [], opened, onClose, onAccou
         onClose={() => setShareOpen(false)}
         shareUrl={storyShareUrl}
         title="story"
-        shareText={activeStory?.caption || `View ${storyData?.profile.username}'s story on Sprygram.`}
-        storyDriveFileId={shareStoryDriveFileId}
-        storyPreviewUrl={shareStoryDriveFileId ? activeStory?.mediaUrl : undefined}
-        storyAuthorUsername={shareStoryDriveFileId ? storyData?.profile.username : undefined}
+        shareText={activeStory?.caption || `View ${storyData?.profile.username}'s story on Sprysnap.`}
       />
     </>
   );

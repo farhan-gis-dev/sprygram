@@ -15,7 +15,7 @@ import { IconSend2, IconTrash, IconX } from '@tabler/icons-react';
 import { useEffect, useMemo, useState } from 'react';
 import { sprygramApi } from '@/lib/api-client';
 import { useApiAuth } from '@/lib/use-api-auth';
-import type { Comment, SprygramProfile } from '@/lib/api-types';
+import type { Comment, SprySnapProfile } from '@/lib/api-types';
 import { formatRelativeTime } from '@/lib/time';
 import { ProfileAvatar } from '@/components/ui/profile-avatar';
 import { LoadingState } from '@/components/ui/loading-state';
@@ -24,7 +24,7 @@ type Props = {
   opened: boolean;
   postId: string | null;
   onClose: () => void;
-  viewer: SprygramProfile | null;
+  viewer: SprySnapProfile | null;
   onCommentCountIncrement?: () => void;
   className?: string;
 };
@@ -74,7 +74,7 @@ export function CommentsModal({
       {(styles) => (
         <div
           style={styles}
-          className={`absolute inset-x-0 bottom-0 top-1/2 z-20 overflow-hidden rounded-t-[22px] border-t border-[#efefef] bg-white shadow-[0_-20px_40px_rgba(15,23,42,0.18)] ${className}`.trim()}
+          className={`absolute inset-x-0 bottom-0 top-1/2 z-20 overflow-hidden rounded-t-[22px] border-t border-white/40 bg-white/97 shadow-[0_-20px_40px_rgba(15,23,42,0.18)] backdrop-blur ${className}`.trim()}
         >
           <div className="flex h-full flex-col">
             <div className="border-b border-[#efefef] px-4 py-3">

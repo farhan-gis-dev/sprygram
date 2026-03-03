@@ -1,6 +1,6 @@
 'use client';
 
-import { Alert, Button, Text } from '@mantine/core';
+import { Alert, Button, Center, Loader, Stack, Text } from '@mantine/core';
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { getOidcRuntimeConfig } from '@/lib/oidc-config';
@@ -122,28 +122,14 @@ export function SpryLoginGuard({ children }: { children: React.ReactNode }) {
   if (!oidcEnabled) {
     if (pathname !== '/profiles' && (!isAuthenticated || !devSessionReady)) {
       return (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white">
-          <div className="mb-8 flex flex-col items-center gap-4">
-            <img src="/logo.png" alt="Sprygram" className="h-24 w-24 rounded-[28px] object-cover shadow-[0_16px_48px_rgba(0,0,0,0.14)]" />
-            <span className="text-2xl font-extrabold tracking-tight text-[#1a1a1a]">Sprygram</span>
-          </div>
-          <div className="w-40 overflow-hidden rounded-full bg-gray-100" style={{ height: 3 }}>
-            <div
-              className="h-full rounded-full bg-[#0095f6]"
-              style={{ animation: 'sprygram-loading-bar 1.4s ease-in-out infinite', width: '40%' }}
-            />
-          </div>
-          <Text size="xs" c="dimmed" mt={16}>
-            {devBootstrapError ? 'Opening profiles...' : 'Preparing session...'}
-          </Text>
-          <style>{`
-            @keyframes sprygram-loading-bar {
-              0%   { transform: translateX(-150%); }
-              50%  { transform: translateX(100%); }
-              100% { transform: translateX(350%); }
-            }
-          `}</style>
-        </div>
+        <Center h="100vh">
+          <Stack align="center" gap="sm">
+            <Loader />
+            <Text size="sm" c="dimmed">
+              {devBootstrapError ? 'Opening profiles...' : 'Preparing local dev session...'}
+            </Text>
+          </Stack>
+        </Center>
       );
     }
 
@@ -160,47 +146,33 @@ export function SpryLoginGuard({ children }: { children: React.ReactNode }) {
 
   if (!oidcConfigured) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <Center h="100vh">
         <Alert color="yellow" maw={440}>
-          <div className="flex flex-col gap-1">
+          <Stack gap="xs">
             <Text fw={600}>Sprylogin is not configured</Text>
             <Text size="sm">Set `NEXT_PUBLIC_KEYCLOAK_URL`, `NEXT_PUBLIC_KEYCLOAK_REALM`, and `NEXT_PUBLIC_KEYCLOAK_CLIENT_ID` to enable OIDC mode.</Text>
-          </div>
+          </Stack>
         </Alert>
-      </div>
+      </Center>
     );
   }
 
   if (authLoading || (!isAuthenticated && !authError)) {
     return (
-      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white">
-        <div className="mb-8 flex flex-col items-center gap-4">
-          <img src="/logo.png" alt="Sprygram" className="h-24 w-24 rounded-[28px] object-cover shadow-[0_16px_48px_rgba(0,0,0,0.14)]" />
-          <span className="text-2xl font-extrabold tracking-tight text-[#1a1a1a]">Sprygram</span>
-        </div>
-        <div className="w-40 overflow-hidden rounded-full bg-gray-100" style={{ height: 3 }}>
-          <div
-            className="h-full rounded-full bg-[#0095f6]"
-            style={{ animation: 'sprygram-loading-bar 1.4s ease-in-out infinite', width: '40%' }}
-          />
-        </div>
-        <Text size="xs" c="dimmed" mt={16}>Redirecting to Sprylogin...</Text>
-        <style>{`
-          @keyframes sprygram-loading-bar {
-            0%   { transform: translateX(-150%); }
-            50%  { transform: translateX(100%); }
-            100% { transform: translateX(350%); }
-          }
-        `}</style>
-      </div>
+      <Center h="100vh">
+        <Stack align="center" gap="sm">
+          <Loader />
+          <Text size="sm" c="dimmed">Redirecting to Sprylogin...</Text>
+        </Stack>
+      </Center>
     );
   }
 
   if (authError) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <Center h="100vh">
         <Alert color="red" maw={420}>
-          <div className="flex flex-col gap-2">
+          <Stack gap="xs">
             <Text fw={600}>Sprylogin authentication failed</Text>
             <Text size="sm">{authError}</Text>
             <Text size="xs" c="dimmed">Client: {configuredClientId}</Text>
@@ -208,9 +180,9 @@ export function SpryLoginGuard({ children }: { children: React.ReactNode }) {
             <Button size="xs" onClick={() => void loginWithKeycloak()}>
               Try Sign In Again
             </Button>
-          </div>
+          </Stack>
         </Alert>
-      </div>
+      </Center>
     );
   }
 

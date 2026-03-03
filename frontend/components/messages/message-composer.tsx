@@ -27,25 +27,20 @@ type Props = {
   placeholder?: string;
   disabled?: boolean;
   onMessagesCreated: (messages: DirectMessage[]) => void;
+  onTyping?: () => void;
 };
 
 const EMOJIS = [
-  // Faces
-  '\u{1F600}', '\u{1F602}', '\u{1F60D}', '\u{1F970}', '\u{1F60A}', '\u{1F60E}', '\u{1F929}', '\u{1F61C}', '\u{1F62D}', '\u{1F605}',
-  '\u{1F606}', '\u{1F923}', '\u{1F60F}', '\u{1F612}', '\u{1F644}', '\u{1F633}', '\u{1F92F}', '\u{1F631}', '\u{1F97A}', '\u{1F624}',
-  // Hands & gestures
-  '\u{1F44D}', '\u{1F44E}', '\u{1F44F}', '\u{1F64C}', '\u{1F91D}', '\u{1F91C}', '\u{1F64F}', '\u{1F4AA}', '\u{1F44C}', '\u270C\uFE0F',
-  '\u{1F91E}', '\u{1F44B}', '\u{1F919}', '\u261D\uFE0F', '\u{1FAF6}',
-  // Hearts & love
-  '\u2764\uFE0F', '\u{1F9E1}', '\u{1F49B}', '\u{1F49A}', '\u{1F499}', '\u{1F49C}', '\u{1F5A4}', '\u{1F90D}', '\u{1F496}', '\u{1F497}',
-  '\u{1F498}', '\u{1F49D}', '\u{1F494}', '\u2763\uFE0F', '\u{1F4AB}',
-  // Nature & animals
-  '\u{1F31F}', '\u2B50', '\u{1F319}', '\u2600\uFE0F', '\u{1F308}', '\u{1F338}', '\u{1F33A}', '\u{1F340}', '\u{1F436}', '\u{1F431}',
-  // Food & drink
-  '\u{1F355}', '\u{1F354}', '\u{1F35C}', '\u{1F363}', '\u2615', '\u{1F37A}', '\u{1F942}', '\u{1F370}', '\u{1F369}', '\u{1F366}',
-  // Activities & celebration
-  '\u{1F389}', '\u{1F38A}', '\u{1F381}', '\u{1F525}', '\u2728', '\u{1F4A5}', '\u{1F680}', '\u{1F3A7}', '\u{1F3B5}', '\u{1F4F8}',
-  '\u{1F4AF}', '\u{1F440}', '\u{1F480}', '\u{1F926}', '\u{1F937}',
+  '\u{1F600}',
+  '\u{1F60D}',
+  '\u{1F44D}',
+  '\u{1F389}',
+  '\u{1F525}',
+  '\u2728',
+  '\u{1F680}',
+  '\u{1F3A7}',
+  '\u{1F4AF}',
+  '\u{1F44C}',
 ];
 
 const mediaAccept = 'image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime';
@@ -61,6 +56,7 @@ export function MessageComposer({
   placeholder = 'Message...',
   disabled = false,
   onMessagesCreated,
+  onTyping,
 }: Props) {
   const auth = useApiAuth();
   const [value, setValue] = useState('');
@@ -72,6 +68,11 @@ export function MessageComposer({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+
+  // GIF search via Giphy
+  const [gifSearch, setGifSearch] = useState('');
+  const [gifResults, setGifResults] = useState<Array<{ id: string; url: string; previewUrl: string }>>([]);
+  const [gifLoading, setGifLoading] = useState(false);
 
   useEffect(() => {
     if (!recordingStartedAt) {
@@ -93,6 +94,40 @@ export function MessageComposer({
       }
     };
   }, []);
+
+  useEffect(() => {
+    const query = gifSearch.trim();
+    if (!query) {
+      setGifResults([]);
+      return;
+    }
+    setGifLoading(true);
+    const controller = new AbortController();
+    const apiKey = process.env.NEXT_PUBLIC_GIPHY_API_KEY || 'dc6zaTOxFJmzC';
+    const timer = window.setTimeout(() => {
+      fetch(
+        `https://api.giphy.com/v1/gifs/search?api_key=${apiKey}&q=${encodeURIComponent(query)}&limit=12&rating=g`,
+        { signal: controller.signal },
+      )
+        .then((res) => res.json())
+        .then((body: { data: Array<{ id: string; images: { fixed_height_small: { url: string }; fixed_height_small_still: { url: string } } }> }) => {
+          setGifResults(
+            (body.data || []).map((gif) => ({
+              id: gif.id,
+              url: gif.images.fixed_height_small.url,
+              previewUrl: gif.images.fixed_height_small_still.url,
+            })),
+          );
+        })
+        .catch(() => { /* ignore aborted */ })
+        .finally(() => setGifLoading(false));
+    }, 400);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+      setGifLoading(false);
+    };
+  }, [gifSearch]);
 
   const canSendText = useMemo(
     () => Boolean(peerUserId && auth.token && value.trim().length > 0 && !sending && !disabled),
@@ -116,6 +151,22 @@ export function MessageComposer({
       emitMessages([created]);
     } catch (error: any) {
       notifications.show({ color: 'red', title: 'Send failed', message: error.message || 'Unable to send message.' });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const sendGifUrl = async (gifUrl: string) => {
+    if (!peerUserId || !auth.token || sending || disabled) return;
+    setSending(true);
+    try {
+      const created = await sprygramApi.sendMessage({
+        receiverId: peerUserId,
+        content: encodeRichMessageToken('gif', gifUrl),
+      }, auth);
+      emitMessages([created]);
+    } catch (error: any) {
+      notifications.show({ color: 'red', title: 'Send failed', message: error.message || 'Unable to send GIF.' });
     } finally {
       setSending(false);
     }
@@ -233,14 +284,14 @@ export function MessageComposer({
 
       <Group wrap="nowrap" align="flex-end">
         <Group gap={4} wrap="nowrap">
-          <Popover width={324} position="top-start" withArrow shadow="md">
+          <Popover width={220} position="top-start" withArrow shadow="md">
             <Popover.Target>
               <ActionIcon variant="subtle" color="gray" disabled={disabled || sending || !peerUserId} aria-label="Open emoji picker" title="Open emoji picker">
                 <IconMoodSmile size={18} />
               </ActionIcon>
             </Popover.Target>
             <Popover.Dropdown>
-              <div className="grid grid-cols-10 gap-0.5 max-h-[240px] overflow-y-auto">
+              <Group gap={6}>
                 {EMOJIS.map((emoji) => (
                   <button
                     key={emoji}
@@ -251,7 +302,7 @@ export function MessageComposer({
                     {emoji}
                   </button>
                 ))}
-              </div>
+              </Group>
             </Popover.Dropdown>
           </Popover>
 
@@ -266,7 +317,7 @@ export function MessageComposer({
             <IconPhotoPlus size={18} />
           </ActionIcon>
 
-          <Popover width={280} position="top-start" withArrow shadow="md">
+          <Popover width={300} position="top-start" withArrow shadow="md" onClose={() => setGifSearch('')}>
             <Popover.Target>
               <ActionIcon variant="subtle" color="gray" disabled={disabled || sending || !peerUserId} aria-label="Open GIF picker" title="Open GIF picker">
                 <IconGif size={18} />
@@ -274,21 +325,48 @@ export function MessageComposer({
             </Popover.Target>
             <Popover.Dropdown>
               <Stack gap={8}>
-                <Text size="xs" fw={700} c="dimmed">Choose a GIF</Text>
-                <div className="grid grid-cols-2 gap-2">
-                  {GIF_LIBRARY.map((item) => (
-                    <button
-                      key={item.key}
-                      type="button"
-                      className="message-rich-gif rounded-2xl px-3 py-4 text-center text-white"
-                      style={{ background: `linear-gradient(135deg, ${item.accentFrom}, ${item.accentTo})` }}
-                      onClick={() => void sendRichMessage('gif', item)}
-                    >
-                      <div className="text-2xl">{item.emoji}</div>
-                      <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.14em]">{item.label}</div>
-                    </button>
-                  ))}
+                <TextInput
+                  placeholder="Search GIFs..."
+                  value={gifSearch}
+                  onChange={(event) => setGifSearch(event.currentTarget.value)}
+                  size="xs"
+                  autoFocus
+                />
+                {gifLoading && <Text size="xs" c="dimmed" ta="center">Searching...</Text>}
+                {!gifLoading && gifSearch.trim() && gifResults.length === 0 && (
+                  <Text size="xs" c="dimmed" ta="center">No GIFs found</Text>
+                )}
+                <div className="grid grid-cols-3 gap-1 max-h-52 overflow-y-auto">
+                  {gifSearch.trim() ? (
+                    gifResults.map((gif) => (
+                      <button
+                        key={gif.id}
+                        type="button"
+                        className="overflow-hidden rounded-lg focus:outline-none hover:opacity-80 transition-opacity"
+                        onClick={() => void sendGifUrl(gif.url)}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={gif.url} alt="GIF" className="h-20 w-full object-cover" loading="lazy" />
+                      </button>
+                    ))
+                  ) : (
+                    GIF_LIBRARY.map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        className="message-rich-gif rounded-lg px-2 py-3 text-center text-white"
+                        style={{ background: `linear-gradient(135deg, ${item.accentFrom}, ${item.accentTo})` }}
+                        onClick={() => void sendRichMessage('gif', item)}
+                      >
+                        <div className="text-xl">{item.emoji}</div>
+                        <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]">{item.label}</div>
+                      </button>
+                    ))
+                  )}
                 </div>
+                {!gifSearch.trim() && (
+                  <Text size="[10px]" c="dimmed" ta="center">Powered by Giphy — type to search</Text>
+                )}
               </Stack>
             </Popover.Dropdown>
           </Popover>
@@ -334,7 +412,7 @@ export function MessageComposer({
 
         <TextInput
           value={value}
-          onChange={(event) => setValue(event.currentTarget.value)}
+          onChange={(event) => { setValue(event.currentTarget.value); onTyping?.(); }}
           className="flex-1"
           placeholder={placeholder}
           disabled={disabled || sending || !peerUserId}

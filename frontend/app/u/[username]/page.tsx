@@ -1,354 +1,335 @@
-'use client';
+﻿'use client';
 
-import { Button, Divider, Group, Stack, Switch, Text, TextInput, Textarea } from '@mantine/core';
+import {
+  ActionIcon,
+  Button,
+  Group,
+  SimpleGrid,
+  Stack,
+  Tabs,
+  Text,
+  Tooltip,
+} from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { useMantineColorScheme } from '@mantine/core';
+import {
+  IconArrowLeft,
+  IconGridDots,
+  IconLock,
+  IconMessage,
+  IconPlayerPlay,
+  IconSettings,
+} from '@tabler/icons-react';
 import Link from 'next/link';
-import { useEffect, useState, type ReactNode } from 'react';
-import { sprygramApi } from '@/lib/api-client';
-import type { SprygramProfile } from '@/lib/api-types';
+import { useRouter, useParams } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { FollowButton } from '@/components/profile/follow-button';
+import { ProfileAvatar } from '@/components/ui/profile-avatar';
 import { LoadingState } from '@/components/ui/loading-state';
+import { EmptyState } from '@/components/ui/empty-state';
+import { sprygramApi } from '@/lib/api-client';
+import type { SprygramPost, SprygramProfile } from '@/lib/api-types';
 import { useApiAuth } from '@/lib/use-api-auth';
 import { useDevAuth } from '@/lib/dev-auth-context';
 
-const SETTINGS_KEY = 'sprygram.settings.preferences';
-
-type LocalPreferences = {
-  autoplayVideos: boolean;
-  dataSaver: boolean;
-  hideLikeCounts: boolean;
-  allowStoryReplies: boolean;
-  notifyLikes: boolean;
-  notifyComments: boolean;
-  notifyFollows: boolean;
-  notifyMessages: boolean;
-  showSensitiveContent: boolean;
-  highQualityUploads: boolean;
-  downloadOverWifiOnly: boolean;
-  allowMentions: boolean;
-  allowMessageRequests: boolean;
-  showSuggestedPosts: boolean;
-  quietMode: boolean;
-  showKeyboardHints: boolean;
-  professionalMode: boolean;
-  insightsEmails: boolean;
-  filteredWords: string;
-  customStatus: string;
-};
-
-const defaultPreferences: LocalPreferences = {
-  autoplayVideos: true,
-  dataSaver: false,
-  hideLikeCounts: false,
-  allowStoryReplies: true,
-  notifyLikes: true,
-  notifyComments: true,
-  notifyFollows: true,
-  notifyMessages: true,
-  showSensitiveContent: false,
-  highQualityUploads: true,
-  downloadOverWifiOnly: false,
-  allowMentions: true,
-  allowMessageRequests: true,
-  showSuggestedPosts: true,
-  quietMode: false,
-  showKeyboardHints: true,
-  professionalMode: false,
-  insightsEmails: false,
-  filteredWords: '',
-  customStatus: '',
-};
-
-function SettingsCard({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description: string;
-  children: ReactNode;
-}) {
+function StatPill({ value, label }: { value: number; label: string }) {
+  const fmt =
+    value >= 1_000_000
+      ? `${(value / 1_000_000).toFixed(1)}M`
+      : value >= 1_000
+        ? `${(value / 1_000).toFixed(1)}K`
+        : String(value);
   return (
-    <div className="rounded-[24px] border border-border bg-panel p-5">
-      <Stack gap="sm">
-        <div>
-          <Text fw={700} size="lg">{title}</Text>
-          <Text size="sm" c="dimmed">{description}</Text>
-        </div>
-        {children}
-      </Stack>
-    </div>
+    <Stack align="center" gap={0}>
+      <Text fw={800} size="lg" lh={1.2}>{fmt}</Text>
+      <Text size="xs" c="dimmed" fw={500}>{label}</Text>
+    </Stack>
   );
 }
 
-export default function SettingsPage() {
-  const auth = useApiAuth();
-  const { colorScheme, setColorScheme } = useMantineColorScheme();
+function PostThumbnail({ post, onClick }: { post: SprygramPost; onClick: () => void }) {
+  const firstMedia = post.media?.[0];
+  const isVideo = firstMedia?.mediaType === 'video';
+  const hasMultiple = (post.media?.length ?? 0) > 1;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group relative aspect-square w-full overflow-hidden rounded-[4px] bg-[#f0f2f5] focus:outline-none"
+    >
+      {firstMedia ? (
+        isVideo ? (
+          <video src={firstMedia.url} className="h-full w-full object-cover" muted preload="metadata" />
+        ) : (
+          <img
+            src={firstMedia.url}
+            alt={post.caption || 'Post'}
+            className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+          />
+        )
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-[#9ca3af]">
+          <IconGridDots size={28} />
+        </div>
+      )}
+
+      <div className="absolute inset-0 flex items-center justify-center gap-4 bg-black/40 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+        <span className="flex items-center gap-1 text-white text-sm font-bold">
+          {String.fromCodePoint(0x2764)} {post.likeCount}
+        </span>
+        <span className="flex items-center gap-1 text-white text-sm font-bold">
+          {String.fromCodePoint(0x1F4AC)} {post.commentCount}
+        </span>
+      </div>
+
+      {isVideo && (
+        <span className="absolute right-2 top-2 rounded-full bg-black/50 p-0.5">
+          <IconPlayerPlay size={12} color="white" />
+        </span>
+      )}
+      {hasMultiple && !isVideo && (
+        <span className="absolute right-2 top-2 rounded-full bg-black/50 p-0.5">
+          <IconGridDots size={12} color="white" />
+        </span>
+      )}
+    </button>
+  );
+}
+
+export default function UserProfilePage() {
+  const router = useRouter();
+  const { username } = useParams<{ username: string }>();
   const { isReady, activeIdentity } = useDevAuth();
-  const [loading, setLoading] = useState(false);
+  const auth = useApiAuth();
+
   const [profile, setProfile] = useState<SprygramProfile | null>(null);
-  const [preferences, setPreferences] = useState<LocalPreferences>(defaultPreferences);
-  const [savingPrivacy, setSavingPrivacy] = useState(false);
+  const [me, setMe] = useState<SprygramProfile | null>(null);
+  const [posts, setPosts] = useState<SprygramPost[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [loadingPosts, setLoadingPosts] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [activeTab, setActiveTab] = useState<'posts' | 'reels'>('posts');
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
+  const loadProfile = useCallback(async () => {
+    if (!username) return;
+    setLoadingProfile(true);
     try {
-      const raw = window.localStorage.getItem(SETTINGS_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Partial<LocalPreferences>;
-      setPreferences((previous) => ({ ...previous, ...parsed }));
-    } catch {
-      setPreferences(defaultPreferences);
+      const [profileData, meData] = await Promise.all([
+        sprygramApi.getProfileByUsername(username, auth),
+        sprygramApi.getMyProfile(auth).catch(() => null),
+      ]);
+      setProfile(profileData);
+      setMe(meData);
+    } catch (error: any) {
+      notifications.show({ color: 'red', title: 'Profile not found', message: error.message });
+    } finally {
+      setLoadingProfile(false);
     }
-  }, []);
+  }, [username, auth.token, auth.workspaceId]);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(preferences));
-  }, [preferences]);
+  const loadPosts = useCallback(async (cursor?: string | null) => {
+    if (!username) return;
+    if (cursor) setLoadingMore(true);
+    else setLoadingPosts(true);
+    try {
+      const res = await sprygramApi.getProfilePosts(username, { limit: 18, cursor: cursor ?? undefined }, auth);
+      setPosts((prev) => (cursor ? [...prev, ...res.items] : res.items));
+      setNextCursor(res.nextCursor);
+    } catch {
+      // noop
+    } finally {
+      setLoadingPosts(false);
+      setLoadingMore(false);
+    }
+  }, [username, auth.token, auth.workspaceId]);
 
   useEffect(() => {
     if (!isReady || !auth.token) return;
-    setLoading(true);
-    sprygramApi.getMyProfile(auth)
-      .then(setProfile)
-      .catch(() => setProfile(null))
-      .finally(() => setLoading(false));
-  }, [isReady, activeIdentity?.id, auth.token, auth.workspaceId]);
+    void loadProfile();
+  }, [isReady, activeIdentity?.id, auth.token, auth.workspaceId, username]);
 
-  const togglePreference = <K extends keyof LocalPreferences>(key: K, value: LocalPreferences[K]) => {
-    setPreferences((previous) => ({
-      ...previous,
-      [key]: value,
-    }));
-  };
+  useEffect(() => {
+    if (!profile?.canViewPosts) return;
+    setPosts([]);
+    setNextCursor(null);
+    void loadPosts(null);
+  }, [profile?.userId, profile?.canViewPosts]);
 
-  const togglePrivacy = async (checked: boolean) => {
-    setSavingPrivacy(true);
-    try {
-      const updated = await sprygramApi.updateMyProfile({ isPrivate: checked }, auth);
-      setProfile(updated);
-      notifications.show({
-        color: 'teal',
-        title: 'Privacy updated',
-        message: checked ? 'Your account is now private.' : 'Your account is now public.',
-      });
-    } catch (error: any) {
-      notifications.show({ color: 'red', title: 'Update failed', message: error.message || 'Unable to update privacy.' });
-    } finally {
-      setSavingPrivacy(false);
-    }
-  };
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && nextCursor && !loadingMore) {
+          void loadPosts(nextCursor);
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [nextCursor, loadingMore, loadPosts]);
 
-  const copyDiagnostics = async () => {
-    const snapshot = {
-      username: profile?.username || null,
-      colorScheme,
-      preferences,
-      generatedAt: new Date().toISOString(),
-    };
-    await navigator.clipboard.writeText(JSON.stringify(snapshot, null, 2));
-    notifications.show({ color: 'teal', title: 'Copied', message: 'Settings snapshot copied to clipboard.' });
-  };
+  const isOwnProfile = me?.userId === profile?.userId;
 
-  if (!isReady || loading) {
-    return <LoadingState message="Loading settings..." />;
+  if (!isReady || loadingProfile) return <LoadingState message="Loading profile..." />;
+
+  if (!profile) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <EmptyState title="Profile not found" description="This account does not exist or has been removed." />
+      </div>
+    );
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1120px] px-6 py-6">
-      <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="rounded-[24px] border border-border bg-panel p-5">
+    <div className="mx-auto w-full max-w-[935px] px-4 py-6">
+      <Group mb="md" gap="xs">
+        <ActionIcon variant="subtle" color="dark" radius="xl" onClick={() => router.back()}>
+          <IconArrowLeft size={20} />
+        </ActionIcon>
+        <Text fw={700} size="lg">{profile.username}</Text>
+        {profile.isPrivate && (
+          <Tooltip label="Private account">
+            <IconLock size={16} color="gray" />
+          </Tooltip>
+        )}
+      </Group>
+
+      <div className="mb-8 flex flex-col items-start gap-6 sm:flex-row sm:items-center">
+        <ProfileAvatar src={profile.avatarUrl} name={profile.displayName || profile.username} size={100} />
+
+        <div className="flex-1">
           <Stack gap="sm">
-            <Text fw={800} size="xl">Settings</Text>
-            <Text size="sm" c="dimmed">
-              Spryworkspace still owns global account settings. These controls are for Sprygram behavior and presentation.
-            </Text>
-            <Divider my="xs" />
-            <Button component={Link} href="/activity" variant="subtle" justify="flex-start">Your Activity</Button>
-            <Button component={Link} href="/saved" variant="subtle" justify="flex-start">Saved</Button>
-            <Button component={Link} href="/messages" variant="subtle" justify="flex-start">Messages</Button>
-            <Button component={Link} href="/profiles" variant="subtle" justify="flex-start">Profiles</Button>
+            <Group gap="sm" align="center" wrap="nowrap">
+              <Text fw={700} size="xl">{profile.displayName || profile.username}</Text>
+              {isOwnProfile && (
+                <ActionIcon component={Link} href="/settings" variant="subtle" color="dark" radius="xl" size="sm">
+                  <IconSettings size={18} />
+                </ActionIcon>
+              )}
+            </Group>
+
+            <Text size="sm" c="dimmed">@{profile.username}</Text>
+
+            {profile.bio && (
+              <Text size="sm" style={{ whiteSpace: 'pre-wrap', maxWidth: 420 }}>{profile.bio}</Text>
+            )}
+
+            <Group gap="xl" mt="xs">
+              <StatPill value={profile.stats.posts} label="Posts" />
+              <StatPill value={profile.stats.followers} label="Followers" />
+              <StatPill value={profile.stats.following} label="Following" />
+            </Group>
+
+            {!isOwnProfile && (
+              <Group gap="xs" mt="xs">
+                <FollowButton
+                  targetUserId={profile.userId}
+                  initialStatus={profile.followStatus}
+                  size="sm"
+                  onStatusChange={(status) =>
+                    setProfile((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            followStatus: status,
+                            stats: {
+                              ...prev.stats,
+                              followers:
+                                status === 'accepted'
+                                  ? prev.stats.followers + 1
+                                  : Math.max(0, prev.stats.followers - 1),
+                            },
+                          }
+                        : prev,
+                    )
+                  }
+                />
+                {profile.followStatus === 'accepted' && (
+                  <Button
+                    variant="light"
+                    color="gray"
+                    size="sm"
+                    leftSection={<IconMessage size={15} />}
+                    component={Link}
+                    href={`/messages?user=${profile.userId}`}
+                  >
+                    Message
+                  </Button>
+                )}
+              </Group>
+            )}
+
+            {isOwnProfile && (
+              <Button component={Link} href="/settings" variant="light" color="gray" size="sm">
+                Edit profile
+              </Button>
+            )}
           </Stack>
-        </aside>
-
-        <Stack gap="md">
-          <SettingsCard
-            title="How you use Instagram"
-            description="Daily behavior, posting controls, and playback settings for your own browsing experience."
-          >
-            <Switch
-              checked={preferences.autoplayVideos}
-              onChange={(event) => togglePreference('autoplayVideos', event.currentTarget.checked)}
-              label="Autoplay videos"
-            />
-            <Switch
-              checked={preferences.hideLikeCounts}
-              onChange={(event) => togglePreference('hideLikeCounts', event.currentTarget.checked)}
-              label="Hide like counts in your own view"
-            />
-            <Switch
-              checked={preferences.quietMode}
-              onChange={(event) => togglePreference('quietMode', event.currentTarget.checked)}
-              label="Quiet mode for fewer interruptions"
-            />
-            <TextInput
-              label="Status note"
-              value={preferences.customStatus}
-              onChange={(event) => togglePreference('customStatus', event.currentTarget.value)}
-              placeholder="Optional note shown only on this device"
-            />
-          </SettingsCard>
-
-          <SettingsCard
-            title="Who can see your content"
-            description="Privacy controls for your posts, stories, and account visibility."
-          >
-            <Switch
-              checked={Boolean(profile?.isPrivate)}
-              onChange={(event) => void togglePrivacy(event.currentTarget.checked)}
-              label="Private account"
-              disabled={savingPrivacy}
-            />
-            <Switch
-              checked={preferences.allowStoryReplies}
-              onChange={(event) => togglePreference('allowStoryReplies', event.currentTarget.checked)}
-              label="Allow story replies by default"
-            />
-            <Switch
-              checked={preferences.allowMessageRequests}
-              onChange={(event) => togglePreference('allowMessageRequests', event.currentTarget.checked)}
-              label="Allow message requests"
-            />
-          </SettingsCard>
-
-          <SettingsCard
-            title="How others can interact with you"
-            description="Control mentions, comments, and incoming contact patterns."
-          >
-            <Switch
-              checked={preferences.allowMentions}
-              onChange={(event) => togglePreference('allowMentions', event.currentTarget.checked)}
-              label="Allow mentions and tags"
-            />
-            <Switch
-              checked={preferences.notifyComments}
-              onChange={(event) => togglePreference('notifyComments', event.currentTarget.checked)}
-              label="Comment notifications"
-            />
-            <Switch
-              checked={preferences.notifyMessages}
-              onChange={(event) => togglePreference('notifyMessages', event.currentTarget.checked)}
-              label="Direct message notifications"
-            />
-            <Textarea
-              label="Hidden words"
-              minRows={3}
-              value={preferences.filteredWords}
-              onChange={(event) => togglePreference('filteredWords', event.currentTarget.value)}
-              placeholder="Add comma-separated words to mute in your own browsing experience"
-            />
-          </SettingsCard>
-
-          <SettingsCard
-            title="What you see"
-            description="Adjust feed and explore behavior on this device."
-          >
-            <Switch
-              checked={preferences.showSuggestedPosts}
-              onChange={(event) => togglePreference('showSuggestedPosts', event.currentTarget.checked)}
-              label="Show suggested posts"
-            />
-            <Switch
-              checked={preferences.showSensitiveContent}
-              onChange={(event) => togglePreference('showSensitiveContent', event.currentTarget.checked)}
-              label="Reduce sensitive content"
-            />
-            <Switch
-              checked={preferences.notifyLikes}
-              onChange={(event) => togglePreference('notifyLikes', event.currentTarget.checked)}
-              label="Like notifications"
-            />
-            <Switch
-              checked={preferences.notifyFollows}
-              onChange={(event) => togglePreference('notifyFollows', event.currentTarget.checked)}
-              label="Follow notifications"
-            />
-          </SettingsCard>
-
-          <SettingsCard
-            title="Your app and media"
-            description="Media quality, storage preferences, and interface behavior for this browser."
-          >
-            <Switch
-              checked={colorScheme === 'dark'}
-              onChange={(event) => setColorScheme(event.currentTarget.checked ? 'dark' : 'light')}
-              label="Dark mode"
-            />
-            <Switch
-              checked={preferences.dataSaver}
-              onChange={(event) => togglePreference('dataSaver', event.currentTarget.checked)}
-              label="Use less bandwidth"
-            />
-            <Switch
-              checked={preferences.highQualityUploads}
-              onChange={(event) => togglePreference('highQualityUploads', event.currentTarget.checked)}
-              label="Upload highest available quality"
-            />
-            <Switch
-              checked={preferences.downloadOverWifiOnly}
-              onChange={(event) => togglePreference('downloadOverWifiOnly', event.currentTarget.checked)}
-              label="Prefer Wi-Fi for heavier media"
-            />
-            <Switch
-              checked={preferences.showKeyboardHints}
-              onChange={(event) => togglePreference('showKeyboardHints', event.currentTarget.checked)}
-              label="Show keyboard hints on reels"
-            />
-          </SettingsCard>
-
-          <SettingsCard
-            title="Family Center"
-            description="Relationship and supervision tools are not wired to backend records yet, but the entry point is ready."
-          >
-            <Group>
-              <Button variant="default" onClick={() => notifications.show({ color: 'blue', title: 'Family Center', message: 'Family supervision tools will be connected once the backend policy module is added.' })}>
-                Open Family Center
-              </Button>
-            </Group>
-          </SettingsCard>
-
-          <SettingsCard
-            title="For professionals"
-            description="Creator and business toggles for people who publish frequently."
-          >
-            <Switch
-              checked={preferences.professionalMode}
-              onChange={(event) => togglePreference('professionalMode', event.currentTarget.checked)}
-              label="Professional dashboard mode"
-            />
-            <Switch
-              checked={preferences.insightsEmails}
-              onChange={(event) => togglePreference('insightsEmails', event.currentTarget.checked)}
-              label="Receive insights summaries"
-            />
-          </SettingsCard>
-
-          <SettingsCard
-            title="More info and support"
-            description="Diagnostics, reporting, and support shortcuts."
-          >
-            <Group>
-              <Button variant="default" onClick={() => notifications.show({ color: 'orange', title: 'Report a Problem', message: 'A local report stub was created. Backend support ticket wiring can be added next.' })}>
-                Report a Problem
-              </Button>
-              <Button variant="light" onClick={() => void copyDiagnostics()}>
-                Copy diagnostics
-              </Button>
-            </Group>
-          </SettingsCard>
-        </Stack>
+        </div>
       </div>
+
+      {profile.isPrivate && !profile.canViewPosts && !isOwnProfile && (
+        <div className="flex flex-col items-center gap-3 py-16 text-center">
+          <div className="flex h-20 w-20 items-center justify-center rounded-full border-2 border-[#cfd5db]">
+            <IconLock size={36} color="#9ca3af" />
+          </div>
+          <Text fw={700} size="lg">This account is private</Text>
+          <Text size="sm" c="dimmed">Follow this account to see their photos and videos.</Text>
+        </div>
+      )}
+
+      {(profile.canViewPosts || isOwnProfile) && (
+        <Tabs
+          value={activeTab}
+          onChange={(v) => setActiveTab(v as 'posts' | 'reels')}
+          styles={{ tab: { fontSize: '0.8rem', fontWeight: 600 } }}
+        >
+          <Tabs.List justify="center" mb="md">
+            <Tabs.Tab value="posts" leftSection={<IconGridDots size={15} />}>Posts</Tabs.Tab>
+            <Tabs.Tab value="reels" leftSection={<IconPlayerPlay size={15} />}>Reels</Tabs.Tab>
+          </Tabs.List>
+
+          <Tabs.Panel value="posts">
+            {loadingPosts && posts.length === 0 ? (
+              <LoadingState message="Loading posts..." />
+            ) : posts.length === 0 ? (
+              <EmptyState
+                title={isOwnProfile ? 'Share your first post' : 'No posts yet'}
+                description={
+                  isOwnProfile
+                    ? 'Your photos and videos will appear here.'
+                    : `${profile.displayName || profile.username} has not posted yet.`
+                }
+              />
+            ) : (
+              <>
+                <SimpleGrid cols={3} spacing={2}>
+                  {posts.map((post) => (
+                    <PostThumbnail key={post.id} post={post} onClick={() => router.push(`/p/${post.id}`)} />
+                  ))}
+                </SimpleGrid>
+                <div ref={sentinelRef} className="h-8" />
+                {loadingMore && <LoadingState message="" />}
+              </>
+            )}
+          </Tabs.Panel>
+
+          <Tabs.Panel value="reels">
+            <EmptyState
+              title="No reels yet"
+              description={
+                isOwnProfile
+                  ? 'Post a video and tap the reel icon to share it as a reel.'
+                  : `${profile.displayName || profile.username} has not shared any reels yet.`
+              }
+            />
+          </Tabs.Panel>
+        </Tabs>
+      )}
     </div>
   );
 }

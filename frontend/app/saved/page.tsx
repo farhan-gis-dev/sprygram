@@ -7,7 +7,6 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { LoadingState } from '@/components/ui/loading-state';
 import { sprygramApi } from '@/lib/api-client';
 import type { SprygramPost } from '@/lib/api-types';
-import { SAVED_POSTS_KEY, getStoredIds } from '@/lib/client-storage';
 import { useApiAuth } from '@/lib/use-api-auth';
 import { useDevAuth } from '@/lib/dev-auth-context';
 
@@ -23,9 +22,10 @@ export default function SavedPage() {
     const load = async () => {
       setLoading(true);
       try {
-        const ids = getStoredIds(SAVED_POSTS_KEY);
-        const posts = await Promise.all(ids.map((id) => sprygramApi.getPost(id, auth).catch(() => null)));
-        setItems(posts.filter((item): item is SprygramPost => Boolean(item)));
+        const res = await sprygramApi.getSavedPosts({ limit: 50 }, auth);
+        setItems(res.items || []);
+      } catch {
+        setItems([]);
       } finally {
         setLoading(false);
       }
@@ -75,3 +75,4 @@ export default function SavedPage() {
     </div>
   );
 }
+

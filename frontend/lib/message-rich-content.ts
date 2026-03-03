@@ -22,15 +22,15 @@ export const STICKER_LIBRARY: RichMessageLibraryItem[] = [
   { key: 'locked-in', label: 'Locked In', emoji: '\u{1F512}', accentFrom: '#475569', accentTo: '#1e293b' },
 ];
 
-export const encodeRichMessageToken = (kind: RichMessageKind, key: string) => `[[sprysnap:${kind}:${key}]]`;
+export const encodeRichMessageToken = (kind: RichMessageKind, key: string) => `[[sprygram:${kind}:${key}]]`;
 
 export const parseRichMessageToken = (content: string | null | undefined): { kind: RichMessageKind; key: string } | null => {
   if (!content) return null;
-  const match = content.trim().match(/^\[\[sprygram:(gif|sticker):([a-z0-9-]+)\]\]$/i);
+  const match = content.trim().match(/^\[\[sprygram:(gif|sticker):(.+?)\]\]$/i);
   if (!match) return null;
   return {
     kind: match[1].toLowerCase() as RichMessageKind,
-    key: match[2].toLowerCase(),
+    key: match[2],
   };
 };
 

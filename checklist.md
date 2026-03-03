@@ -1,4 +1,7 @@
-2. You didnt get my point and mixed up: Listen carefully, i click my story and a image/video/story pops up right? that story/image/video popup should have like a 3 line button which gives option to delete or other option each story personally like instagram.
-3. Some stories are still stuck, take too much time to load, same for reels (reels should also show load, same for posts if not loaded) 
-4. Reels should only contain reels/videos, not images. Right now you did wrong, undo the thing you did in it. I meant that when a creator is uploading a reel and uploads an image instead of a video, add like a trim option so that the creator knows how long the video will be because reels are basically videos and not images.
-5. When i click someones story and click the share button, inside the share should be an option Share to My Story, not a media button next to the like button
+2. Comments should show on the bottom of inside of stories too, just like instagram, with maybe a scroll.
+4. In location, only show like cities, countries, etc, not addresses and each city,etc should be one per row, right now you put all of them together seperated by ','.
+5. Uploading time showed once but vanished, it should be like a countdown according to the upload time and internet speed
+Cannot read properties of undefined (reading 'map')
+9. Reel/video takes tooo tooo much long time to start playing. Its playing fine in home /feed but not fine in reels.
+11. Notification still not working correct, just do one thing, clicking the specific notification should just navigate to the post they liked/commented or take to messages if they messaged. But if i click ther Profile picture in the notifications ection, go to their profile
+14. GIF and Stickers not working properly. Users should be able to search and create their own GIFs and Stickers. You can maybe fetch gifs online when someone searches and siplay them there, just like whatsapp.

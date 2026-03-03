@@ -4,6 +4,7 @@ import { Group, Stack, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { FollowRequestsPanel } from '@/components/profile/follow-requests-panel';
 import { EmptyState } from '@/components/ui/empty-state';
 import { LoadingState } from '@/components/ui/loading-state';
@@ -41,6 +42,35 @@ export default function NotificationsPage() {
     void load();
   }, [isReady, activeIdentity?.id, auth.token, auth.workspaceId]);
 
+  const getNotifHref = (item: NotificationItem): string | null => {
+    switch (item.type) {
+      case 'like':
+      case 'comment':
+      case 'mention':
+        return item.entityId ? `/p/${item.entityId}` : null;
+      case 'follow':
+      case 'follow_request':
+      case 'follow_accepted':
+      case 'follow_accept':
+        return item.actor?.username ? `/u/${item.actor.username}` : null;
+      // Backend sends 'direct_message' and 'story_reply' types
+      case 'direct_message' as string:
+      case 'story_reply' as string:
+      case 'message':
+        return item.actor?.userId ? `/messages?peer=${item.actor.userId}` : '/messages';
+      default:
+        return item.entityId ? `/p/${item.entityId}` : (item.actor?.username ? `/u/${item.actor.username}` : null);
+    }
+  };
+
+  const handleNotifClick = (item: NotificationItem) => {
+    const href = getNotifHref(item);
+    if (!href) return;
+    // Mark as read optimistically (client-side only)
+    setItems((previous) => previous.map((entry) => entry.id === item.id ? { ...entry, isRead: true } : entry));
+    router.push(href);
+  };
+
   if (!isReady || loading) return <LoadingState message="Loading notifications..." />;
 
   return (
@@ -69,40 +99,36 @@ export default function NotificationsPage() {
           />
         ) : (
           <Stack gap="xs">
-            {items.map((item) => {
-              const isPostLinked = (item.type === 'comment' || item.type === 'like') && item.entityId;
-              return (
-                <div
-                  key={item.id}
-                  className={`rounded-xl border border-border bg-panel p-3 ${item.isRead ? '' : 'border-[#dbeafe] bg-[#f8fbff]'} ${isPostLinked ? 'cursor-pointer transition hover:bg-gray-50' : ''}`}
-                  onClick={isPostLinked ? () => router.push(`/p/${item.entityId}`) : undefined}
-                >
-                  <Group wrap="nowrap" align="flex-start">
-                    <button
-                      type="button"
-                      className="shrink-0"
-                      onClick={(e) => { e.stopPropagation(); if (item.actor?.username) router.push(`/u/${item.actor.username}`); }}
-                      aria-label={`View ${item.actor?.username ?? 'account'}'s profile`}
-                    >
-                      <ProfileAvatar size={38} src={item.actor?.avatarUrl} name={item.actor?.displayName || item.actor?.username || 'Sprygram'} />
-                    </button>
-                    <Stack gap={1} className="min-w-0">
-                      <Text size="sm" lineClamp={2}>
-                        <button
-                          type="button"
-                          className="font-semibold hover:underline"
-                          onClick={(e) => { e.stopPropagation(); if (item.actor?.username) router.push(`/u/${item.actor.username}`); }}
-                        >
-                          {item.actor?.username || 'Sprygram'}
-                        </button>{' '}
-                        {item.previewText || item.type.replace('_', ' ')}
-                      </Text>
-                      <Text size="xs" c="dimmed">{formatRelativeTime(item.createdAt)}</Text>
-                    </Stack>
-                  </Group>
-                </div>
-              );
-            })}
+            {items.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                aria-label={`${item.actor?.username || 'Sprygram'} ${item.previewText || item.type}`}
+                className={`w-full cursor-pointer rounded-xl border border-border bg-panel p-3 text-left transition-colors hover:bg-hover ${item.isRead ? '' : 'border-[#dbeafe] bg-[#f8fbff] dark:border-blue-700 dark:bg-blue-950/30'}`}
+                onClick={() => handleNotifClick(item)}
+              >
+                <Group wrap="nowrap" align="flex-start">
+                  <button
+                    type="button"
+                    aria-label={`View ${item.actor?.username || 'Sprygram'}'s profile`}
+                    className="shrink-0"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (item.actor?.username) router.push(`/u/${item.actor.username}`);
+                    }}
+                  >
+                    <ProfileAvatar size={38} src={item.actor?.avatarUrl} name={item.actor?.displayName || item.actor?.username || 'Sprygram'} />
+                  </button>
+                  <Stack gap={1} className="min-w-0">
+                    <Text size="sm" lineClamp={2}>
+                      <span className="font-semibold">{item.actor?.username || 'Sprygram'}</span>{' '}
+                      {item.previewText || item.type.replace('_', ' ')}
+                    </Text>
+                    <Text size="xs" c="dimmed">{formatRelativeTime(item.createdAt)}</Text>
+                  </Stack>
+                </Group>
+              </button>
+            ))}
 
             {nextCursor ? (
               <Group justify="center">

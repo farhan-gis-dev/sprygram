@@ -8,6 +8,7 @@ import type {
   FeedResponse,
   FollowRequestsResponse,
   FollowStatus,
+  LiveRoomView,
   MessageAttachmentUploadResponse,
   MessageUnreadCount,
   NotificationsResponse,
@@ -169,6 +170,59 @@ export const sprygramApi = {
       method: 'POST',
       body: form,
     }, auth);
+  },
+
+  uploadMediaWithProgress: (
+    files: File[],
+    onProgress: (percent: number, bytesPerSec: number) => void,
+    auth?: ApiAuth,
+  ): Promise<UploadMediaResponse> => {
+    return new Promise((resolve, reject) => {
+      const form = new FormData();
+      files.forEach((file) => form.append('media', file));
+
+      const xhr = new XMLHttpRequest();
+      const startTime = Date.now();
+
+      xhr.upload.addEventListener('progress', (event) => {
+        if (!event.lengthComputable) return;
+        const percent = Math.round((event.loaded / event.total) * 100);
+        const elapsed = (Date.now() - startTime) / 1000;
+        const bytesPerSec = elapsed > 0 ? event.loaded / elapsed : 0;
+        onProgress(percent, bytesPerSec);
+      });
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            let parsed = JSON.parse(xhr.responseText);
+            // Unwrap API envelope { success: true, data: {...} } if present
+            if (parsed && typeof parsed === 'object' && 'success' in parsed && 'data' in parsed) {
+              parsed = parsed.data;
+            }
+            resolve(parsed as UploadMediaResponse);
+          } catch {
+            resolve({ items: [] } as unknown as UploadMediaResponse);
+          }
+        } else {
+          try {
+            const errBody = JSON.parse(xhr.responseText);
+            const msg = errBody?.error || errBody?.message || `Upload failed: ${xhr.status}`;
+            reject(new Error(msg));
+          } catch {
+            reject(new Error(`Upload failed: ${xhr.status}`));
+          }
+        }
+      });
+
+      xhr.addEventListener('error', () => reject(new Error('Upload network error')));
+      xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
+
+      xhr.open('POST', `${API_BASE}/api/sprygram/media/upload`);
+      if (auth?.token) xhr.setRequestHeader('Authorization', `Bearer ${auth.token}`);
+      if (auth?.workspaceId) xhr.setRequestHeader('x-workspace-id', auth.workspaceId);
+      xhr.send(form);
+    });
   },
 
   uploadMessageAttachments: (files: File[], auth?: ApiAuth) => {
@@ -382,6 +436,66 @@ export const sprygramApi = {
     request<{ updatedCount: number }>('/api/sprygram/notifications/read-all', {
       method: 'PATCH',
     }, auth),
+
+  submitReport: (
+    body: {
+      entityType: 'post' | 'reel' | 'story' | 'profile' | 'comment';
+      entityId: string;
+      reason: string;
+      details?: string;
+    },
+    auth?: ApiAuth,
+  ) => request<{ id: string; entityType: string; entityId: string; reason: string; createdAt: string }>('/api/sprygram/reports', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }, auth),
+
+  // Saved posts
+  getSavedPosts: (params: { limit?: number; offset?: number } = {}, auth?: ApiAuth) => {
+    const query = new URLSearchParams();
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.offset) query.set('offset', String(params.offset));
+    return request<{ items: SprygramPost[]; total: number; offset: number; limit: number }>(
+      `/api/sprygram/saved${query.toString() ? `?${query.toString()}` : ''}`,
+      {},
+      auth,
+    );
+  },
+
+  savePost: (postId: string, auth?: ApiAuth) =>
+    request<{ saved: boolean }>(`/api/sprygram/saved/${postId}`, { method: 'POST' }, auth),
+
+  unsavePost: (postId: string, auth?: ApiAuth) =>
+    request<{ saved: boolean }>(`/api/sprygram/saved/${postId}`, { method: 'DELETE' }, auth),
+
+  isSavedPost: (postId: string, auth?: ApiAuth) =>
+    request<{ saved: boolean }>(`/api/sprygram/saved/${postId}/status`, {}, auth),
+
+  // Favourite accounts
+  getFavouriteAccountIds: (auth?: ApiAuth) =>
+    request<{ userIds: string[] }>('/api/sprygram/saved/accounts', {}, auth),
+
+  favouriteAccount: (targetUserId: string, auth?: ApiAuth) =>
+    request<{ favourited: boolean }>(`/api/sprygram/saved/accounts/${targetUserId}`, { method: 'POST' }, auth),
+
+  unfavouriteAccount: (targetUserId: string, auth?: ApiAuth) =>
+    request<{ favourited: boolean }>(`/api/sprygram/saved/accounts/${targetUserId}`, { method: 'DELETE' }, auth),
+
+  // Go Live
+  startLive: (title: string, auth?: ApiAuth) =>
+    request<LiveRoomView>('/api/sprygram/live/start', {
+      method: 'POST',
+      body: JSON.stringify({ title }),
+    }, auth),
+
+  endLive: (roomId: string, auth?: ApiAuth) =>
+    request<{ ok: boolean }>(`/api/sprygram/live/${roomId}/end`, { method: 'POST' }, auth),
+
+  getLiveRooms: (auth?: ApiAuth) =>
+    request<{ items: LiveRoomView[] }>('/api/sprygram/live', {}, auth),
+
+  getLiveRoom: (roomId: string, auth?: ApiAuth) =>
+    request<LiveRoomView>(`/api/sprygram/live/${roomId}`, {}, auth),
 
   getActivity: (
     tab: 'likes' | 'comments' | 'story_replies' | 'reviews',

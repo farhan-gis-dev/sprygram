@@ -4,6 +4,7 @@ import {
   Badge,
   Button,
   Group,
+  Loader,
   Modal,
   Popover,
   RangeSlider,
@@ -34,15 +35,15 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { sprygramApi } from '@/lib/api-client';
 import { useApiAuth } from '@/lib/use-api-auth';
-import type { SearchAccountResult, SprygramPost, SprygramProfile } from '@/lib/api-types';
+import type { SearchAccountResult, SprySnapPost, SprySnapProfile } from '@/lib/api-types';
 import { ProfileAvatar } from '@/components/ui/profile-avatar';
 
 type Props = {
   mode?: 'post' | 'reel';
-  onCreated?: (post: SprygramPost) => void;
+  onCreated?: (post: SprySnapPost) => void;
 };
 
-type ComposeStep = 'idle' | 'adjust' | 'enhance' | 'cover' | 'details';
+type ComposeStep = 'idle' | 'adjust' | 'enhance' | 'details';
 type AspectPreset = 'original' | 'square' | 'portrait' | 'landscape';
 type AdjustMode = 'crop' | 'rotate';
 type FilterPreset = 'none' | 'drift' | 'mono' | 'glow' | 'dune';
@@ -63,20 +64,7 @@ type PreviewItem = { key: string; file: File; url: string; sourceIndex: number }
 const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm', 'video/quicktime'];
 const VIDEO_ALLOWED = ['video/mp4', 'video/webm', 'video/quicktime'];
 const EMOJIS = ['\u{1F600}', '\u{1F60D}', '\u2728', '\u{1F4CD}', '\u{1F3AC}', '\u{1F4F8}', '\u{1F44D}', '\u{1F525}'];
-const COMMON_LOCATIONS = [
-  'Islamabad, Pakistan',
-  'Rawalpindi, Pakistan',
-  'Lahore, Pakistan',
-  'Karachi, Pakistan',
-  'Peshawar, Pakistan',
-  'Murree, Pakistan',
-  'Dubai, UAE',
-  'Istanbul, Turkey',
-  'Doha, Qatar',
-  'London, United Kingdom',
-  'New York, United States',
-  'Toronto, Canada',
-];
+
 
 const previewAspectClass: Record<AspectPreset, string> = {
   original: 'aspect-[4/5]',
@@ -148,15 +136,15 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
   const auth = useApiAuth();
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const cropDragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
-  const [me, setMe] = useState<SprygramProfile | null>(null);
+  const [me, setMe] = useState<SprySnapProfile | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [step, setStep] = useState<ComposeStep>('idle');
   const [adjustMode, setAdjustMode] = useState<AdjustMode>('crop');
   const [activePreviewIndex, setActivePreviewIndex] = useState(0);
-  const [coverIndex, setCoverIndex] = useState(0);
   const [adjustments, setAdjustments] = useState<Record<string, MediaAdjustment>>({});
   const [imageEnhancements, setImageEnhancements] = useState<Record<string, ImageEnhancement>>({});
   const [videoEnhancements, setVideoEnhancements] = useState<Record<string, VideoEnhancement>>({});
+  const [videoDuration, setVideoDuration] = useState(0);
   const [caption, setCaption] = useState('');
   const [location, setLocation] = useState('');
   const [locationOpen, setLocationOpen] = useState(false);
@@ -171,8 +159,9 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
   const [allowComments, setAllowComments] = useState(true);
   const [shareAsStory, setShareAsStory] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadPercent, setUploadPercent] = useState(0);
+  const [uploadEta, setUploadEta] = useState<string | null>(null);
   const [isDraggingCrop, setIsDraggingCrop] = useState(false);
-  const [videoDurationSec, setVideoDurationSec] = useState<number | null>(null);
 
   useEffect(() => {
     if (!auth.token) return;
@@ -191,14 +180,7 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
 
   useEffect(() => () => previews.forEach((preview) => URL.revokeObjectURL(preview.url)), [previews]);
 
-  const orderedPreviews = useMemo(() => {
-    if (!previews.length) return [];
-    const next = [...previews];
-    const safeCoverIndex = Math.min(coverIndex, Math.max(0, next.length - 1));
-    const [cover] = next.splice(safeCoverIndex, 1);
-    next.unshift(cover);
-    return next;
-  }, [previews, coverIndex]);
+  const orderedPreviews = useMemo(() => previews, [previews]);
 
   useEffect(() => {
     if (activePreviewIndex > Math.max(0, orderedPreviews.length - 1)) setActivePreviewIndex(0);
@@ -206,19 +188,45 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
 
   const activePreview = orderedPreviews[activePreviewIndex] || null;
 
+  // Reset video duration when the active preview changes, so the trim slider re-reads from the new video.
   useEffect(() => {
-    setVideoDurationSec(null);
+    setVideoDuration(0);
   }, [activePreview?.key]);
+
   const activeAdjustment = activePreview ? adjustments[activePreview.key] || defaultMediaAdjustment() : null;
   const activeImageEnhancement = activePreview ? imageEnhancements[activePreview.key] || defaultImageEnhancement() : defaultImageEnhancement();
   const activeVideoEnhancement = activePreview ? videoEnhancements[activePreview.key] || defaultVideoEnhancement() : defaultVideoEnhancement();
   const isReelMode = mode === 'reel';
   const reelEligible = orderedPreviews.length === 1 && orderedPreviews[0]?.file.type.startsWith('video/');
   const canSubmit = orderedPreviews.length > 0 && !submitting && (!isReelMode || reelEligible);
-  const locationSuggestions = useMemo(() => {
-    const query = location.trim().toLowerCase();
-    if (!query) return COMMON_LOCATIONS.slice(0, 6);
-    return COMMON_LOCATIONS.filter((entry) => entry.toLowerCase().includes(query)).slice(0, 6);
+  const [locationSuggestions, setLocationSuggestions] = useState<string[]>([]);
+  const [locationLoading, setLocationLoading] = useState(false);
+
+  useEffect(() => {
+    const query = location.trim();
+    if (!query) {
+      setLocationSuggestions([]);
+      return;
+    }
+    setLocationLoading(true);
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=8&accept-language=en`,
+        { signal: controller.signal, headers: { 'Accept-Language': 'en' } },
+      )
+        .then((res) => res.json())
+        .then((results: Array<{ display_name: string }>) => {
+          setLocationSuggestions(results.map((r) => r.display_name));
+        })
+        .catch(() => {/* ignore aborted / network errors */})
+        .finally(() => setLocationLoading(false));
+    }, 350);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+      setLocationLoading(false);
+    };
   }, [location]);
 
   useEffect(() => {
@@ -230,7 +238,9 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
       setter: (items: SearchAccountResult[]) => void,
     ) => {
       const normalized = draft.trim().replace(/^@/, '');
-      if (!normalized) {
+      // Show suggestions when there's a query OR when user just typed "@"
+      const isAtMention = draft.trim() === '@';
+      if (!normalized && !isAtMention) {
         setter([]);
         return;
       }
@@ -278,7 +288,6 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
     setStep('idle');
     setAdjustMode('crop');
     setActivePreviewIndex(0);
-    setCoverIndex(0);
     setAdjustments({});
     setImageEnhancements({});
     setVideoEnhancements({});
@@ -328,7 +337,6 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
     setImageEnhancements(nextImageEnhancements);
     setVideoEnhancements(nextVideoEnhancements);
     setActivePreviewIndex(0);
-    setCoverIndex(0);
     setAdjustMode('crop');
     setStep('adjust');
   };
@@ -360,11 +368,6 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
   const applyFilterPreset = (preset: FilterPreset) => {
     const base = defaultImageEnhancement();
     updateImageEnhancement({ ...base, ...FILTER_PRESETS[preset], preset });
-  };
-
-  const selectCover = (sourceIndex: number) => {
-    setCoverIndex(sourceIndex);
-    setActivePreviewIndex(0);
   };
 
   const addAccount = (
@@ -450,8 +453,8 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
             onLoadedMetadata={(event) => {
               const [startPercent] = activeVideoEnhancement.trim;
               if (Number.isFinite(event.currentTarget.duration) && event.currentTarget.duration > 0) {
+                setVideoDuration(event.currentTarget.duration);
                 event.currentTarget.currentTime = (event.currentTarget.duration * startPercent) / 100;
-                setVideoDurationSec(event.currentTarget.duration);
               }
             }}
             onTimeUpdate={(event) => {
@@ -490,9 +493,26 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
   const submit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
+    setUploadPercent(0);
+    setUploadEta(null);
     try {
       const orderedFiles = orderedPreviews.map((preview) => preview.file);
-      const uploaded = await sprygramApi.uploadMedia(orderedFiles, auth);
+      const totalBytes = orderedFiles.reduce((acc, f) => acc + f.size, 0);
+
+      const uploaded = await sprygramApi.uploadMediaWithProgress(
+        orderedFiles,
+        (percent, bytesPerSec) => {
+          setUploadPercent(percent);
+          if (bytesPerSec > 0 && percent < 100) {
+            const remainingBytes = totalBytes * (1 - percent / 100);
+            const secsLeft = remainingBytes / bytesPerSec;
+            setUploadEta(secsLeft < 60 ? `~${Math.ceil(secsLeft)}s left` : `~${Math.ceil(secsLeft / 60)}m left`);
+          } else {
+            setUploadEta(null);
+          }
+        },
+        auth,
+      );
       const mediaFileIds = uploaded.items.map((item) => item.driveFileId);
       const created = await sprygramApi.createPost({
         caption: caption.trim() || undefined,
@@ -530,8 +550,8 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
           <Text fw={700} size="lg">{isReelMode ? 'Create reel' : 'Create new post'}</Text>
           <Text size="sm" c="dimmed">
             {isReelMode
-              ? 'Choose one video, set the cover, then finish the details before publishing your reel.'
-              : 'Select media, fine tune the visuals, choose the cover, then finish the details before publishing.'}
+              ? 'Choose one video, then finish the details before publishing your reel.'
+              : 'Select media, fine tune the visuals, then finish the details before publishing.'}
           </Text>
         </Stack>
 
@@ -539,7 +559,7 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
           <label className="flex min-h-[360px] cursor-pointer flex-col items-center justify-center rounded-[24px] border border-dashed border-border bg-[#fafafa] text-center transition hover:bg-[#f5f7fa]">
             <IconUpload size={36} />
             <Text fw={700} mt={16}>{isReelMode ? 'Drag one video here' : 'Drag photos and videos here'}</Text>
-            <Text size="sm" c="dimmed" mt={6}>{isReelMode ? 'One video per reel (MP4, WebM, MOV). You can trim the duration after selecting.' : 'Or browse your device. Up to 10 files.'}</Text>
+            <Text size="sm" c="dimmed" mt={6}>{isReelMode ? 'You can trim the duration after selecting.' : 'Or browse your device. Up to 10 files.'}</Text>
             <span className="mt-6 rounded-full bg-[var(--spry-accent)] px-4 py-2 text-sm font-semibold text-white">Select from computer</span>
             <input
               type="file"
@@ -568,11 +588,6 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
                       ) : (
                         <img src={preview.url} alt={preview.file.name} className="h-full w-full object-cover" />
                       )}
-                      {preview.sourceIndex === coverIndex ? (
-                        <span className="absolute bottom-1 left-1 rounded-full bg-white/95 px-1.5 py-0.5 text-[10px] font-semibold text-black">
-                          Cover
-                        </span>
-                      ) : null}
                     </button>
                   ))}
                 </div>
@@ -595,7 +610,6 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
                 <Group gap={8}>
                   <Badge variant={step === 'adjust' ? 'filled' : 'light'} color="blue">Crop & Rotate</Badge>
                   <Badge variant={step === 'enhance' ? 'filled' : 'light'} color="blue">Filters & Adjustments</Badge>
-                  <Badge variant={step === 'cover' ? 'filled' : 'light'} color="blue">Cover</Badge>
                   <Badge variant={step === 'details' ? 'filled' : 'light'} color="blue">Details</Badge>
                 </Group>
               </Group>
@@ -638,7 +652,13 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
                         }
                       />
 
-                      <Popover opened={locationOpen && locationSuggestions.length > 0} onChange={setLocationOpen} position="bottom-start" width="target" shadow="md">
+                      <Popover
+                        opened={locationOpen && (locationLoading || locationSuggestions.length > 0)}
+                        onChange={setLocationOpen}
+                        position="bottom-start"
+                        width="target"
+                        shadow="md"
+                      >
                         <Popover.Target>
                           <TextInput
                             label="Location"
@@ -648,18 +668,24 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
                               setLocationOpen(true);
                             }}
                             onFocus={() => setLocationOpen(true)}
-                            placeholder="Add location"
+                            placeholder="Search for a location..."
                             maxLength={120}
-                            leftSection={<IconMapPin size={16} />}
+                            leftSection={locationLoading ? <Loader size={14} /> : <IconMapPin size={16} />}
                           />
                         </Popover.Target>
                         <Popover.Dropdown p={6}>
                           <Stack gap={4}>
+                            {locationLoading && locationSuggestions.length === 0 && (
+                              <Text size="xs" c="dimmed" px={8} py={4}>Searching...</Text>
+                            )}
+                            {!locationLoading && locationSuggestions.length === 0 && location.trim().length > 0 && (
+                              <Text size="xs" c="dimmed" px={8} py={4}>No results found</Text>
+                            )}
                             {locationSuggestions.map((entry) => (
                               <button
                                 key={entry}
                                 type="button"
-                                className="rounded-lg px-3 py-2 text-left text-sm hover:bg-gray-50"
+                                className="rounded-lg px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-white/10"
                                 onClick={() => {
                                   setLocation(entry);
                                   setLocationOpen(false);
@@ -801,16 +827,28 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
                   )}
                 </SimpleGrid>
 
-                <Group justify="space-between">
-                  <Group gap={8}>
-                    <Button variant="default" onClick={() => setStep('adjust')}>Reopen crop</Button>
-                    <Button variant="default" onClick={() => setStep('enhance')}>Reopen filters</Button>
-                    <Button variant="default" onClick={() => setStep('cover')}>Change cover</Button>
+                  <Group justify="space-between" align="center">
+                    <Group gap={8}>
+                      <Button variant="default" onClick={() => setStep('adjust')}>Reopen crop</Button>
+                      <Button variant="default" onClick={() => setStep('enhance')}>Reopen filters</Button>
+                    </Group>
+                    <Stack gap={4} align="flex-end">
+                      {submitting && uploadPercent > 0 && uploadPercent < 100 ? (
+                        <div className="flex items-center gap-2">
+                          <div className="h-1.5 w-32 overflow-hidden rounded-full bg-gray-200">
+                            <div
+                              className="h-full rounded-full bg-[var(--spry-accent)] transition-[width] duration-300"
+                              style={{ width: `${uploadPercent}%` }}
+                            />
+                          </div>
+                          <Text size="xs" c="dimmed">{uploadPercent}%{uploadEta ? ` · ${uploadEta}` : ''}</Text>
+                        </div>
+                      ) : null}
+                      <Button disabled={!canSubmit} loading={submitting} onClick={() => void submit()}>
+                        {isReelMode ? 'Share reel' : 'Share'}
+                      </Button>
+                    </Stack>
                   </Group>
-                  <Button disabled={!canSubmit} loading={submitting} onClick={() => void submit()}>
-                    {isReelMode ? 'Share reel' : 'Share'}
-                  </Button>
-                </Group>
               </Stack>
             ) : (
               <Group justify="space-between" className="rounded-[24px] border border-border bg-white px-4 py-3">
@@ -887,7 +925,7 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
 
         <Modal
           opened={step === 'enhance'}
-          onClose={() => setStep(orderedPreviews.length ? 'cover' : 'idle')}
+          onClose={() => setStep(orderedPreviews.length ? 'details' : 'idle')}
           title="Filters and adjustments"
           centered
           size="xl"
@@ -906,22 +944,27 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
                     <Text fw={700}>Cover, trim and sound</Text>
                     <Text size="sm" c="dimmed">
                       {isReelMode
-                        ? 'Set the trim range to control exactly how long your reel will be before publishing.'
+                        ? 'Choose the reel trim and sound now. You can pick the cover on the next step.'
                         : 'Adjust the video trim and sound now. You can pick the post cover on the next step.'}
                     </Text>
-                    {videoDurationSec ? (
-                      <div className="rounded-xl bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700">
-                        🎬 Total: {videoDurationSec.toFixed(1)}s — selected clip: {((videoDurationSec * (activeVideoEnhancement.trim[1] - activeVideoEnhancement.trim[0])) / 100).toFixed(1)}s
-                      </div>
-                    ) : null}
                     <RangeSlider
-                      label={(value) => videoDurationSec ? `${((videoDurationSec * value) / 100).toFixed(1)}s` : `${value}%`}
+                      label={(value) => videoDuration > 0 ? `${((value * videoDuration) / 100).toFixed(1)}s` : `${value}%`}
                       minRange={5}
                       value={activeVideoEnhancement.trim}
                       onChange={(value) => updateVideoEnhancement({ trim: value as [number, number] })}
                       min={0}
                       max={100}
                     />
+                    {videoDuration > 0 ? (
+                      <div className="rounded-lg bg-blue-50 border border-blue-200 px-3 py-2">
+                        <Text size="xs" c="blue.7">
+                          Total: <span className="font-semibold">{videoDuration.toFixed(1)}s</span>
+                          {' · '}Selected clip: <span className="font-semibold">{((activeVideoEnhancement.trim[1] - activeVideoEnhancement.trim[0]) * videoDuration / 100).toFixed(1)}s</span>
+                          {' ('}from {((activeVideoEnhancement.trim[0] * videoDuration) / 100).toFixed(1)}s
+                          {' to '}{((activeVideoEnhancement.trim[1] * videoDuration) / 100).toFixed(1)}s{')'}
+                        </Text>
+                      </div>
+                    ) : null}
                     <Switch
                       checked={activeVideoEnhancement.soundOn}
                       onChange={(event) => updateVideoEnhancement({ soundOn: event.currentTarget.checked })}
@@ -936,9 +979,9 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
                     <Text fw={700}>Preview tools</Text>
                     <Group gap={8}>
                       <Badge variant="light" leftSection={<IconScissors size={12} />}>
-                        {videoDurationSec
-                          ? `${((videoDurationSec * activeVideoEnhancement.trim[0]) / 100).toFixed(1)}s – ${((videoDurationSec * activeVideoEnhancement.trim[1]) / 100).toFixed(1)}s of ${videoDurationSec.toFixed(1)}s`
-                          : `Trim ${activeVideoEnhancement.trim[0]}% – ${activeVideoEnhancement.trim[1]}%`}
+                        Trim {videoDuration > 0
+                          ? `${((activeVideoEnhancement.trim[0] * videoDuration) / 100).toFixed(1)}s – ${((activeVideoEnhancement.trim[1] * videoDuration) / 100).toFixed(1)}s`
+                          : `${activeVideoEnhancement.trim[0]}% - ${activeVideoEnhancement.trim[1]}%`}
                       </Badge>
                       <Badge variant="light" leftSection={<IconCheck size={12} />}>
                         {activeVideoEnhancement.soundOn ? 'Sound on' : 'Muted'}
@@ -1015,55 +1058,11 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
 
             <Group justify="space-between">
               <Button variant="default" onClick={() => setStep('adjust')}>Back</Button>
-              <Button onClick={() => setStep('cover')}>Next</Button>
+              <Button onClick={() => setStep('details')}>Next</Button>
             </Group>
           </Stack>
         </Modal>
 
-        <Modal
-          opened={step === 'cover'}
-          onClose={() => setStep(orderedPreviews.length ? 'details' : 'idle')}
-          title="Choose cover"
-          centered
-          size="lg"
-        >
-          <Stack gap="md">
-            <Text size="sm" c="dimmed">The selected cover becomes the first item in the preview and upload order.</Text>
-
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              {previews.map((preview) => {
-                const selected = preview.sourceIndex === coverIndex;
-                return (
-                  <button
-                    key={`cover-${preview.key}`}
-                    type="button"
-                    className={`relative overflow-hidden rounded-2xl border transition ${selected ? 'border-[var(--spry-accent)] shadow-[0_0_0_3px_rgba(31,122,224,0.12)]' : 'border-border hover:border-[#a6c9f6]'}`}
-                    onClick={() => selectCover(preview.sourceIndex)}
-                  >
-                    <div className="aspect-square bg-black">
-                      {preview.file.type.startsWith('video/') ? (
-                        <video src={preview.url} className="h-full w-full object-cover" muted playsInline />
-                      ) : (
-                        <img src={preview.url} alt={preview.file.name} className="h-full w-full object-cover" />
-                      )}
-                    </div>
-                    {selected ? (
-                      <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-white/95 px-2 py-1 text-[10px] font-semibold text-black">
-                        <IconCheck size={11} />
-                        Cover
-                      </span>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-
-            <Group justify="space-between">
-              <Button variant="default" onClick={() => setStep('enhance')}>Back</Button>
-              <Button onClick={() => setStep('details')}>Continue</Button>
-            </Group>
-          </Stack>
-        </Modal>
       </Stack>
     </div>
   );

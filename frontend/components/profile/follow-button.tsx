@@ -7,7 +7,6 @@ import { useEffect, useState } from 'react';
 import type { FollowStatus } from '@/lib/api-types';
 import { sprygramApi } from '@/lib/api-client';
 import { useApiAuth } from '@/lib/use-api-auth';
-import { playFollowSound } from '@/lib/sounds';
 
 type Props = {
   targetUserId: string;
@@ -16,6 +15,8 @@ type Props = {
   size?: 'xs' | 'sm' | 'md';
   fullWidth?: boolean;
   className?: string;
+  /** Compact transparent white variant for use inside dark video overlays (Reels). */
+  reelsVariant?: boolean;
 };
 
 export function FollowButton({
@@ -25,6 +26,7 @@ export function FollowButton({
   size = 'xs',
   fullWidth = false,
   className,
+  reelsVariant = false,
 }: Props) {
   const auth = useApiAuth();
   const [status, setStatus] = useState<FollowStatus>(initialStatus);
@@ -51,7 +53,6 @@ export function FollowButton({
     setLoading(true);
     try {
       const res = await sprygramApi.followUser(targetUserId, auth);
-      if (res.status === 'accepted') playFollowSound();
       emit(res.status);
     } catch (error: any) {
       notifications.show({ color: 'red', title: 'Follow failed', message: error.message });
@@ -72,6 +73,52 @@ export function FollowButton({
     }
   };
 
+  // ── Compact transparent overlay style for Reels ──────────────
+  if (reelsVariant) {
+    if (status === 'accepted') {
+      return (
+        <button
+          type="button"
+          disabled={loading}
+          onClick={unfollow}
+          className={`flex h-7 items-center gap-1.5 rounded-full border border-white/60 px-3 text-xs font-semibold text-white backdrop-blur-sm transition-all hover:border-white hover:bg-white/10 active:scale-95 ${pulse ? 'animate-follow-flash' : ''} ${className || ''}`}
+        >
+          <IconCheck size={13} stroke={2.2} />
+          Following
+        </button>
+      );
+    }
+    if (status === 'pending') {
+      return (
+        <button
+          type="button"
+          disabled={loading}
+          onClick={unfollow}
+          className={`flex h-7 items-center gap-1.5 rounded-full border border-yellow-300/70 px-3 text-xs font-semibold text-yellow-200 backdrop-blur-sm transition-all hover:bg-white/10 active:scale-95 ${className || ''}`}
+        >
+          <IconClockHour4 size={13} />
+          Requested
+        </button>
+      );
+    }
+    return (
+      <button
+        type="button"
+        disabled={loading}
+        onClick={follow}
+        className={`flex h-7 items-center gap-1.5 rounded-full bg-[var(--spry-accent)] px-3 text-xs font-semibold text-white shadow transition-all hover:brightness-110 active:scale-95 ${pulse ? 'animate-follow-flash' : ''} ${className || ''}`}
+      >
+        {loading ? (
+          <span className="inline-block h-3 w-3 animate-spin rounded-full border border-transparent border-t-white" />
+        ) : (
+          <IconPlus size={13} stroke={2.2} />
+        )}
+        Follow
+      </button>
+    );
+  }
+
+  // ── Default Mantine Button style ──────────────────────────────
   if (status === 'accepted') {
     return (
       <Button

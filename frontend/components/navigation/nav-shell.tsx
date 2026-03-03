@@ -9,6 +9,7 @@ import {
   useMantineColorScheme,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
+import Image from 'next/image';
 import {
   IconActivity,
   IconBell,
@@ -25,13 +26,14 @@ import {
   IconSearch,
   IconSettings,
   IconSun,
+  IconVideo,
   IconX,
 } from '@tabler/icons-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { sprygramApi } from '@/lib/api-client';
-import type { NotificationItem, SearchAccountResult, SprygramProfile } from '@/lib/api-types';
+import type { NotificationItem, SearchAccountResult, SprySnapProfile } from '@/lib/api-types';
 import { useDevAuth } from '@/lib/dev-auth-context';
 import { useApiAuth } from '@/lib/use-api-auth';
 import { formatRelativeTime } from '@/lib/time';
@@ -46,7 +48,7 @@ const PANEL_WIDTH = 380;
 const SEARCH_HISTORY_KEY = 'sprygram.search.history';
 const SEARCH_HISTORY_LIMIT = 12;
 const ACTIVE_NAV_CLASS = 'border border-[var(--spry-accent-border)] bg-[var(--spry-accent-soft)] text-[var(--spry-accent)] shadow-sm';
-const IDLE_NAV_CLASS = 'text-[var(--spry-nav-text)] hover:bg-[#f7f9fc]';
+const IDLE_NAV_CLASS = 'text-[var(--spry-nav-text)] hover:bg-hover';
 
 const routeIsActive = (pathname: string, href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
@@ -80,7 +82,7 @@ export function NavShell({ children }: { children: React.ReactNode }) {
   } = useDevAuth();
   const { colorScheme, setColorScheme } = useMantineColorScheme();
 
-  const [me, setMe] = useState<SprygramProfile | null>(null);
+  const [me, setMe] = useState<SprySnapProfile | null>(null);
   const [sidebarPinned, setSidebarPinned] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -285,7 +287,11 @@ export function NavShell({ children }: { children: React.ReactNode }) {
     [notificationItems],
   );
 
-  const identityName = me?.displayName || activeIdentity?.label || displayName || 'Spry user';
+  // In OIDC mode the live JWT name always identifies who is signed in.
+  // In dev mode the DB displayName (set per profile) takes priority.
+  const identityName = oidcEnabled
+    ? (displayName || activeIdentity?.label || me?.displayName || 'Spry user')
+    : (me?.displayName || activeIdentity?.label || displayName || 'Spry user');
   const identityHandle = me?.username ? `@${me.username}` : 'Open profile';
 
   if (isCallbackPath) {
@@ -295,7 +301,7 @@ export function NavShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-canvas">
       <aside
-        className="fixed inset-y-0 left-0 z-30 border-r border-border bg-panel px-3 py-5 transition-[width] duration-200 ease-out"
+        className="desktop-sidebar fixed inset-y-0 left-0 z-30 border-r border-border bg-panel px-3 py-5 transition-[width] duration-200 ease-out"
         style={{ width: currentSidebarWidth }}
       >
         <Stack h="100%" justify="space-between" gap="xl">
@@ -303,13 +309,10 @@ export function NavShell({ children }: { children: React.ReactNode }) {
             <div className={`flex h-10 items-center ${sidebarExpanded ? 'justify-between px-2' : 'justify-center'}`}>
               {sidebarExpanded ? (
                 <>
-                  <div className="flex items-center gap-2">
-                    <img src="/logo.png" alt="Sprygram" className="h-8 w-8 rounded-xl object-cover" />
-                    <Text fw={800} size="xl" className="tracking-tight">Sprygram</Text>
-                  </div>
+                  <Image src="/logo.png" alt="Sprygram" width={36} height={36} className="rounded-xl" priority />
                   <button
                     type="button"
-                    className="rounded-lg p-1 hover:bg-gray-100"
+                    className="rounded-lg p-1 hover:bg-hover"
                     onClick={() => setSidebarPinned(false)}
                     aria-label="Collapse sidebar"
                     title="Collapse sidebar"
@@ -320,12 +323,12 @@ export function NavShell({ children }: { children: React.ReactNode }) {
               ) : (
                 <button
                   type="button"
-                  className="rounded-lg p-1 hover:bg-gray-100"
+                  className="rounded-lg p-1 hover:bg-hover"
                   onClick={() => setSidebarPinned(true)}
                   aria-label="Expand sidebar"
                   title="Expand sidebar"
                 >
-                  <img src="/logo.png" alt="Sprygram" className="h-8 w-8 rounded-xl object-cover" />
+                  <Image src="/logo.png" alt="Sprygram" width={32} height={32} className="rounded-xl" />
                 </button>
               )}
             </div>
@@ -365,6 +368,18 @@ export function NavShell({ children }: { children: React.ReactNode }) {
               >
                 <IconMessageCircle size={22} stroke={(!panelMode && routeIsActive(pathname, '/messages')) ? 2.3 : 1.9} />
                 {sidebarExpanded ? <Text size="sm" fw={(!panelMode && routeIsActive(pathname, '/messages')) ? 700 : 500}>Messages</Text> : null}
+              </Link>
+
+              <Link
+                href="/live"
+                onClick={closePanels}
+                prefetch={false}
+                title="Go Live"
+                aria-label="Go Live"
+                className={`flex h-12 items-center rounded-lg py-2.5 ${sidebarExpanded ? 'gap-3 px-3 justify-start' : 'justify-center px-0'} ${(!panelMode && routeIsActive(pathname, '/live')) ? ACTIVE_NAV_CLASS : IDLE_NAV_CLASS}`}
+              >
+                <IconVideo size={22} stroke={(!panelMode && routeIsActive(pathname, '/live')) ? 2.3 : 1.9} />
+                {sidebarExpanded ? <Text size="sm" fw={(!panelMode && routeIsActive(pathname, '/live')) ? 700 : 500}>Live</Text> : null}
               </Link>
 
               <button
@@ -455,7 +470,7 @@ export function NavShell({ children }: { children: React.ReactNode }) {
               onClick={() => void openProfile()}
               title="Open profile"
               aria-label="Open profile"
-              className={`w-full transition hover:border-border hover:bg-gray-50 ${
+              className={`w-full transition hover:border-border hover:bg-hover ${
                 sidebarExpanded
                   ? 'rounded-xl border border-border/80 bg-canvas px-2 py-2 text-left'
                   : 'flex h-12 items-center justify-center rounded-full border border-transparent bg-transparent'
@@ -477,7 +492,7 @@ export function NavShell({ children }: { children: React.ReactNode }) {
               <button
                 type="button"
                 onClick={logout}
-                className="mt-2 w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-[#d9485f] transition hover:bg-[#fff1f2]"
+                className="mt-2 w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-[#d9485f] transition hover:bg-[#fff1f2] dark:hover:bg-[#2d1a1d]"
               >
                 Log Out
               </button>
@@ -495,7 +510,7 @@ export function NavShell({ children }: { children: React.ReactNode }) {
             <div className="border-b border-border p-4">
               <Group justify="space-between">
                 <Text fw={700} size="xl">Search</Text>
-                <button type="button" className="rounded-md p-1 hover:bg-gray-100" onClick={() => setSearchOpen(false)} aria-label="Close search panel" title="Close search panel">
+                <button type="button" className="rounded-md p-1 hover:bg-hover" onClick={() => setSearchOpen(false)} aria-label="Close search panel" title="Close search panel">
                   <IconX size={18} />
                 </button>
               </Group>
@@ -521,14 +536,14 @@ export function NavShell({ children }: { children: React.ReactNode }) {
                       <button
                         key={result.userId}
                         type="button"
-                        className="w-full rounded-lg px-2 py-2 text-left hover:bg-gray-100"
+                        className="w-full rounded-lg px-2 py-2 text-left hover:bg-hover"
                         onClick={() => selectSearchResult(result)}
                       >
                         <Group wrap="nowrap">
                           <ProfileAvatar size={38} src={result.avatarUrl} name={result.displayName || result.username} />
                           <Stack gap={0} className="min-w-0">
                             <Text size="sm" fw={700} lineClamp={1}>{result.username}</Text>
-                            <Text size="xs" c="dimmed" lineClamp={1}>{result.displayName || 'Sprygram user'}</Text>
+                            <Text size="xs" c="dimmed" lineClamp={1}>{result.displayName || 'Sprysnap user'}</Text>
                           </Stack>
                         </Group>
                       </button>
@@ -551,14 +566,14 @@ export function NavShell({ children }: { children: React.ReactNode }) {
                         <button
                           key={`${entry.userId}-${entry.username}`}
                           type="button"
-                          className="w-full rounded-lg px-2 py-2 text-left hover:bg-gray-100"
+                          className="w-full rounded-lg px-2 py-2 text-left hover:bg-hover"
                           onClick={() => selectSearchResult(entry)}
                         >
                           <Group wrap="nowrap">
                             <ProfileAvatar size={38} src={entry.avatarUrl} name={entry.displayName || entry.username} />
                             <Stack gap={0} className="min-w-0">
                               <Text size="sm" fw={700} lineClamp={1}>{entry.username}</Text>
-                              <Text size="xs" c="dimmed" lineClamp={1}>{entry.displayName || 'Sprygram user'}</Text>
+                              <Text size="xs" c="dimmed" lineClamp={1}>{entry.displayName || 'Sprysnap user'}</Text>
                             </Stack>
                           </Group>
                         </button>
@@ -581,7 +596,7 @@ export function NavShell({ children }: { children: React.ReactNode }) {
             <div className="border-b border-border p-4">
               <Group justify="space-between">
                 <Text fw={700} size="xl">Notifications</Text>
-                <button type="button" className="rounded-md p-1 hover:bg-gray-100" onClick={() => setNotificationsOpen(false)} aria-label="Close notifications panel" title="Close notifications panel">
+                <button type="button" className="rounded-md p-1 hover:bg-hover" onClick={() => setNotificationsOpen(false)} aria-label="Close notifications panel" title="Close notifications panel">
                   <IconX size={18} />
                 </button>
               </Group>
@@ -609,16 +624,40 @@ export function NavShell({ children }: { children: React.ReactNode }) {
 
               <Stack gap={2}>
                 {notificationItems.map((item) => (
-                  <div key={item.id} className={`rounded-lg px-2 py-2 ${item.isRead ? '' : 'bg-[#f5f8ff]'}`}>
+                  <div key={item.id} className={`rounded-lg px-2 py-2 ${item.isRead ? '' : 'notification-unread bg-[#f5f8ff]'}`}>
                     <Group wrap="nowrap" align="flex-start">
-                      <ProfileAvatar size={36} src={item.actor?.avatarUrl} name={item.actor?.displayName || item.actor?.username || 'Sprygram'} />
-                      <Stack gap={1} className="min-w-0">
-                        <Text size="sm" lineClamp={2}>
-                          <span className="font-semibold">{item.actor?.username || 'Sprygram'}</span>{' '}
-                          {item.previewText || item.type.replace('_', ' ')}
-                        </Text>
-                        <Text size="xs" c="dimmed">{formatRelativeTime(item.createdAt)}</Text>
-                      </Stack>
+                      <button
+                        type="button"
+                        className="shrink-0"
+                        onClick={() => {
+                          if (item.actor?.username) {
+                            closePanels();
+                            router.push(`/u/${item.actor.username}`);
+                          }
+                        }}
+                      >
+                        <ProfileAvatar size={36} src={item.actor?.avatarUrl} name={item.actor?.displayName || item.actor?.username || 'Sprysnap'} />
+                      </button>
+                      <button
+                        type="button"
+                        className="min-w-0 text-left"
+                        onClick={() => {
+                          closePanels();
+                          if ((item.type === 'like' || item.type === 'comment') && item.entityId) {
+                            router.push(`/p/${item.entityId}`);
+                          } else if (item.actor?.username) {
+                            router.push(`/u/${item.actor.username}`);
+                          }
+                        }}
+                      >
+                        <Stack gap={1} className="min-w-0">
+                          <Text size="sm" lineClamp={2} className="text-left">
+                            <span className="font-semibold">{item.actor?.username || 'Sprysnap'}</span>{' '}
+                            {item.previewText || item.type.replace('_', ' ')}
+                          </Text>
+                          <Text size="xs" c="dimmed">{formatRelativeTime(item.createdAt)}</Text>
+                        </Stack>
+                      </button>
                     </Group>
                   </div>
                 ))}
@@ -628,7 +667,39 @@ export function NavShell({ children }: { children: React.ReactNode }) {
         </section>
       ) : null}
 
-      <div style={{ paddingLeft: CONTENT_LEFT_PADDING }} className="min-h-screen">
+      {/* Mobile bottom navigation */}
+      <nav className="mobile-bottom-nav">
+        <Link href="/feed" onClick={closePanels} title="Home" aria-label="Home" className={`flex flex-col items-center gap-0.5 px-3 py-1 ${routeIsActive(pathname, '/feed') ? 'text-[var(--spry-accent)]' : 'text-[var(--spry-nav-text)]'}`}>
+          <IconHome2 size={24} stroke={routeIsActive(pathname, '/feed') ? 2.3 : 1.8} />
+          <span className="text-[9px] font-medium">Home</span>
+        </Link>
+        <button type="button" onClick={openSearch} title="Search" aria-label="Search" className={`flex flex-col items-center gap-0.5 px-3 py-1 ${searchOpen ? 'text-[var(--spry-accent)]' : 'text-[var(--spry-nav-text)]'}`}>
+          <IconSearch size={24} stroke={searchOpen ? 2.3 : 1.8} />
+          <span className="text-[9px] font-medium">Search</span>
+        </button>
+        <Link href="/create" onClick={closePanels} title="Create" aria-label="Create" className={`flex flex-col items-center gap-0.5 px-3 py-1 ${routeIsActive(pathname, '/create') ? 'text-[var(--spry-accent)]' : 'text-[var(--spry-nav-text)]'}`}>
+          <IconCirclePlus size={26} stroke={routeIsActive(pathname, '/create') ? 2.3 : 1.8} />
+          <span className="text-[9px] font-medium">Create</span>
+        </Link>
+        <Link href="/reels" onClick={closePanels} title="Reels" aria-label="Reels" className={`flex flex-col items-center gap-0.5 px-3 py-1 ${routeIsActive(pathname, '/reels') ? 'text-[var(--spry-accent)]' : 'text-[var(--spry-nav-text)]'}`}>
+          <IconMovie size={24} stroke={routeIsActive(pathname, '/reels') ? 2.3 : 1.8} />
+          <span className="text-[9px] font-medium">Reels</span>
+        </Link>
+        <button type="button" onClick={openNotifications} title="Activity" aria-label="Activity" className={`flex flex-col items-center gap-0.5 px-3 py-1 ${notificationsOpen ? 'text-[var(--spry-accent)]' : 'text-[var(--spry-nav-text)]'}`}>
+          <div className="relative">
+            <IconBell size={24} stroke={notificationsOpen ? 2.3 : 1.8} />
+            {unreadNotifications > 0 ? (
+              <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#ff3040] px-1 text-[10px] font-bold text-white">
+                {unreadNotifications > 9 ? '9+' : unreadNotifications}
+              </span>
+            ) : null}
+          </div>
+          <span className="text-[9px] font-medium">Activity</span>
+        </button>
+      </nav>
+
+      <div className="min-h-screen pb-14 md:pb-0" style={{ paddingLeft: CONTENT_LEFT_PADDING }} data-content-area>
+        <style>{`@media(max-width:767px){[data-content-area]{padding-left:0!important}}`}</style>
         <main className="min-h-screen">{children}</main>
       </div>
     </div>

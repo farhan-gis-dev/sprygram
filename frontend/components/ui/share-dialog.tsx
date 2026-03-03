@@ -2,7 +2,7 @@
 
 import { Button, Group, Modal, ScrollArea, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconBrandTelegram, IconBrandWhatsapp, IconLink, IconMail, IconPlus, IconSearch, IconSend2, IconShare3 } from '@tabler/icons-react';
+import { IconBrandTelegram, IconBrandWhatsapp, IconLink, IconMail, IconSearch, IconSend2, IconShare3 } from '@tabler/icons-react';
 import { useEffect, useMemo, useState } from 'react';
 import { sprygramApi } from '@/lib/api-client';
 import type { Conversation, SearchAccountResult } from '@/lib/api-types';
@@ -22,20 +22,12 @@ type Props = {
   shareUrl: string;
   title: string;
   shareText?: string | null;
-  /** Drive file ID of the first media item — enables the "Add to your story" option */
-  storyDriveFileId?: string;
-  /** Preview thumbnail URL to show on the story card */
-  storyPreviewUrl?: string | null;
-  /** Original creator username shown on the story attribution */
-  storyAuthorUsername?: string;
 };
 
-export function ShareDialog({ opened, onClose, shareUrl, title, shareText, storyDriveFileId, storyPreviewUrl, storyAuthorUsername }: Props) {
+export function ShareDialog({ opened, onClose, shareUrl, title, shareText }: Props) {
   const auth = useApiAuth();
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
-  const [addingToStory, setAddingToStory] = useState(false);
-  const [addedToStory, setAddedToStory] = useState(false);
   const [query, setQuery] = useState('');
   const [note, setNote] = useState('');
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -143,23 +135,6 @@ export function ShareDialog({ opened, onClose, shareUrl, title, shareText, story
     window.open(href, '_blank', 'noopener,noreferrer');
   };
 
-  const addToStory = async () => {
-    if (!storyDriveFileId || addingToStory) return;
-    setAddingToStory(true);
-    try {
-      const caption = storyAuthorUsername
-        ? `Originally shared from @${storyAuthorUsername} \u2014 ${shareUrl}`
-        : shareUrl;
-      await sprygramApi.createStory({ driveFileId: storyDriveFileId, caption }, auth);
-      setAddedToStory(true);
-      notifications.show({ color: 'teal', title: 'Added to your story', message: 'This post has been added to your story!' });
-    } catch (error: any) {
-      notifications.show({ color: 'red', title: 'Failed', message: error.message || 'Could not add to story.' });
-    } finally {
-      setAddingToStory(false);
-    }
-  };
-
   const send = async () => {
     const targets = Object.values(selected);
     if (!targets.length) return;
@@ -215,45 +190,6 @@ export function ShareDialog({ opened, onClose, shareUrl, title, shareText, story
   return (
     <Modal opened={opened} onClose={onClose} centered title={`Share ${title}`} size="md">
       <Stack gap="md">
-        {/* Instagram-style "Add to your story" card */}
-        {storyDriveFileId && (
-          <button
-            type="button"
-            onClick={addToStory}
-            disabled={addingToStory || addedToStory}
-            className="group relative w-full overflow-hidden rounded-2xl border border-border text-left transition hover:opacity-90 disabled:cursor-default"
-            style={{ height: 120 }}
-          >
-            {/* Thumbnail */}
-            {storyPreviewUrl ? (
-              <img src={storyPreviewUrl} alt="Story preview" className="absolute inset-0 h-full w-full object-cover" />
-            ) : (
-              <div className="absolute inset-0 bg-gradient-to-br from-purple-500 via-pink-500 to-yellow-400" />
-            )}
-            {/* Gradient overlay */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20" />
-            {/* Attribution */}
-            {storyAuthorUsername && (
-              <span className="absolute left-3 top-3 text-xs font-semibold text-white drop-shadow">
-                @{storyAuthorUsername}
-              </span>
-            )}
-            {/* Action label */}
-            <div className="absolute bottom-3 left-3 flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--spry-accent)]">
-                {addedToStory ? (
-                  <span className="text-xs text-white">✓</span>
-                ) : (
-                  <IconPlus size={14} color="white" />
-                )}
-              </span>
-              <span className="text-sm font-semibold text-white drop-shadow">
-                {addedToStory ? 'Added to your story!' : addingToStory ? 'Adding…' : 'Add to your story'}
-              </span>
-            </div>
-          </button>
-        )}
-
         <TextInput
           value={query}
           onChange={(event) => setQuery(event.currentTarget.value)}

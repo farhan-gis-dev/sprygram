@@ -6,14 +6,16 @@ const config: Config = {
     './components/**/*.{js,ts,jsx,tsx,mdx}',
     './lib/**/*.{js,ts,jsx,tsx,mdx}',
   ],
+  // Enable dark variant using Mantine's color-scheme data attribute
+  darkMode: ['selector', '[data-mantine-color-scheme="dark"]'],
   theme: {
     extend: {
       colors: {
-        canvas: '#fafafa',
-        panel: '#ffffff',
-        border: '#dbdbdb',
-        text: '#262626',
-        muted: '#737373',
+        canvas: 'var(--color-canvas)',
+        panel: 'var(--color-panel)',
+        border: 'var(--color-border)',
+        text: 'var(--color-text)',
+        muted: 'var(--color-muted)',
       },
       boxShadow: {
         card: '0 1px 2px rgba(0,0,0,0.06)',

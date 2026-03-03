@@ -1,42 +1,43 @@
-'use client';
+"use client";
 
-import { Text } from '@mantine/core';
+import Image from "next/image";
 
-export function LoadingState({ message = 'Loading...' }: { message?: string }) {
+export function LoadingState({
+  message = "Loading...",
+  fullScreen = false,
+}: {
+  message?: string;
+  fullScreen?: boolean;
+}) {
+  if (fullScreen) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-canvas">
+        <div className="flex flex-col items-center gap-5">
+          <Image src="/logo.png" alt="Sprygram" width={64} height={64} priority className="rounded-2xl shadow-lg" />
+          <div className="flex flex-col items-center gap-3">
+            <div className="h-1 w-44 overflow-hidden rounded-full bg-border">
+              <div
+                className="h-full w-2/5 rounded-full bg-[var(--spry-accent)] origin-left animate-[loading-progress_1.6s_ease-in-out_infinite]"
+              />
+            </div>
+            {message !== "Loading..." ? (
+              <p className="text-xs text-muted">{message}</p>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white dark:bg-[#0a0a0a]">
-      {/* Logo */}
-      <div className="mb-8 flex flex-col items-center gap-4">
-        <img
-          src="/logo.png"
-          alt="Sprygram"
-          className="h-24 w-24 rounded-[28px] object-cover shadow-[0_16px_48px_rgba(0,0,0,0.14)]"
-        />
-        <span className="text-2xl font-extrabold tracking-tight text-[#1a1a1a] dark:text-white">Sprygram</span>
+    <div className="flex min-h-[220px] w-full flex-col items-center justify-center gap-3">
+      <div className="relative h-9 w-9">
+        <div className="absolute inset-0 rounded-full border-2 border-border" />
+        <div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-[var(--spry-accent)]" />
       </div>
-
-      {/* Progress bar loader */}
-      <div className="w-40 overflow-hidden rounded-full bg-gray-100 dark:bg-zinc-800" style={{ height: 3 }}>
-        <div
-          className="h-full rounded-full bg-[#0095f6]"
-          style={{
-            animation: 'sprygram-loading-bar 1.4s ease-in-out infinite',
-            width: '40%',
-          }}
-        />
-      </div>
-
-      {message && message !== 'Loading...' ? (
-        <Text size="xs" c="dimmed" mt={16}>{message}</Text>
+      {message !== "Loading..." ? (
+        <p className="text-sm text-muted">{message}</p>
       ) : null}
-
-      <style>{`
-        @keyframes sprygram-loading-bar {
-          0%   { transform: translateX(-150%); }
-          50%  { transform: translateX(100%); }
-          100% { transform: translateX(350%); }
-        }
-      `}</style>
     </div>
   );
 }

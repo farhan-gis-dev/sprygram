@@ -4,12 +4,13 @@ import { Group, Stack, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconEdit, IconSearch } from '@tabler/icons-react';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { sprygramApi } from '@/lib/api-client';
 import type { Conversation, DirectMessage, SprygramProfile } from '@/lib/api-types';
 import { useApiAuth } from '@/lib/use-api-auth';
 import { useDevAuth } from '@/lib/dev-auth-context';
 import { summarizeRichMessageContent } from '@/lib/message-rich-content';
+import { useSprygramSocket, type SprygramMessageEvent, type SprygramReadEvent } from '@/lib/use-sprygram-socket';
 import { LoadingState } from '@/components/ui/loading-state';
 import { ProfileAvatar } from '@/components/ui/profile-avatar';
 import { MessageBubble } from '@/components/messages/message-bubble';
@@ -27,6 +28,95 @@ export default function MessagesPage() {
   const [thread, setThread] = useState<DirectMessage[]>([]);
   const [threadCursor, setThreadCursor] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+
+  // Typing indicator state
+  const [peerIsTyping, setPeerIsTyping] = useState(false);
+  const peerTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const emitTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Hold selectedPeerId in a ref so the socket handler can read the current value
+  const selectedPeerIdRef = useRef<string | null>(null);
+  selectedPeerIdRef.current = selectedPeerId;
+
+  // Real-time message handler
+  const handleSocketMessage = useCallback((msg: SprygramMessageEvent) => {
+    const peerId = msg.mine ? msg.receiverId : msg.senderId;
+    const dm: DirectMessage = {
+      id: msg.id,
+      threadId: msg.threadId,
+      senderId: msg.senderId,
+      receiverId: msg.receiverId,
+      content: msg.content ?? null,
+      mediaDriveFileId: msg.mediaDriveFileId ?? null,
+      storyId: msg.storyId ?? null,
+      createdAt: msg.createdAt,
+    } as DirectMessage;
+
+    // Append to active thread if it matches the open conversation
+    if (peerId === selectedPeerIdRef.current) {
+      setThread((prev) => {
+        // Deduplicate — composer also calls pushCreatedMessages for outgoing
+        if (prev.some((m) => m.id === dm.id)) return prev;
+        return [...prev, dm];
+      });
+    }
+
+    // Update conversation list preview + unread badge
+    const preview = summarizeRichMessageContent(dm.content)
+      || (dm.mediaDriveFileId ? 'Sent media' : dm.storyId ? 'Replied to story' : 'Sent a message');
+
+    setConversations((prev) => {
+      const existing = prev.find((c) => c.peer.userId === peerId);
+      if (!existing) return prev; // unknown peer — will appear on next refresh
+      const isActive = peerId === selectedPeerIdRef.current;
+      return [
+        {
+          ...existing,
+          lastMessage: { id: dm.id, content: preview, senderId: dm.senderId, createdAt: dm.createdAt },
+          unreadCount: isActive ? 0 : (existing.unreadCount || 0) + (msg.mine ? 0 : 1),
+        },
+        ...prev.filter((c) => c.peer.userId !== peerId),
+      ];
+    });
+  }, []);
+
+  // Handle incoming typing events from peer
+  const handleSocketTyping = useCallback(({ senderId }: { senderId: string }) => {
+    if (senderId !== selectedPeerIdRef.current) return;
+    setPeerIsTyping(true);
+    if (peerTypingTimerRef.current) clearTimeout(peerTypingTimerRef.current);
+    peerTypingTimerRef.current = setTimeout(() => setPeerIsTyping(false), 3000);
+  }, []);
+
+  // Handle real-time "seen" receipts — peer read our messages
+  const handleSocketRead = useCallback(({ receiverId, readAt }: SprygramReadEvent) => {
+    // Update readAt on all messages we sent to this peer
+    setThread((prev) =>
+      prev.map((m) =>
+        m.mine && m.receiverId === receiverId && !m.readAt
+          ? { ...m, readAt }
+          : m,
+      ),
+    );
+  }, []);
+
+  const socketRef = useSprygramSocket({
+    token: auth.token,
+    workspaceId: auth.workspaceId,
+    onMessage: handleSocketMessage,
+    onTyping: handleSocketTyping,
+    onRead: handleSocketRead,
+  });
+
+  // Emit typing event to backend (debounced — send once per 2s while typing)
+  const emitTyping = useCallback(() => {
+    if (!selectedPeerIdRef.current) return;
+    if (emitTypingTimerRef.current) return; // already emitting, debounce
+    socketRef.current?.emit('sprygram:typing', { receiverId: selectedPeerIdRef.current });
+    emitTypingTimerRef.current = setTimeout(() => {
+      emitTypingTimerRef.current = null;
+    }, 2000);
+  }, [socketRef]);
 
   useEffect(() => {
     if (!isReady || !auth.token) return;
@@ -88,7 +178,8 @@ export default function MessagesPage() {
       setThread([]);
       return;
     }
-
+    setPeerIsTyping(false);
+    if (peerTypingTimerRef.current) clearTimeout(peerTypingTimerRef.current);
     void loadThread(selectedPeerId);
   }, [selectedPeerId, auth.token, auth.workspaceId]);
 
@@ -236,10 +327,21 @@ export default function MessagesPage() {
             </div>
 
             <div className="border-t border-border p-3">
+              {peerIsTyping ? (
+                <div className="flex items-center gap-1 px-1 pb-2 text-xs text-muted">
+                  <span className="flex gap-0.5">
+                    <span className="inline-block h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:0ms]" />
+                    <span className="inline-block h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:150ms]" />
+                    <span className="inline-block h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:300ms]" />
+                  </span>
+                  <span>{selectedConversation.peer.username} is typing…</span>
+                </div>
+              ) : null}
               <MessageComposer
                 peerUserId={selectedPeerId}
                 placeholder="Message..."
                 onMessagesCreated={pushCreatedMessages}
+                onTyping={emitTyping}
               />
             </div>
           </>

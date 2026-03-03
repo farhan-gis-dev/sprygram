@@ -174,7 +174,7 @@ export default function SettingsPage() {
 
         <Stack gap="md">
           <SettingsCard
-            title="How you use Instagram"
+            title="How you use Sprygram"
             description="Daily behavior, posting controls, and playback settings for your own browsing experience."
           >
             <Switch
