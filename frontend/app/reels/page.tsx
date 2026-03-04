@@ -1,10 +1,11 @@
 'use client';
 
-import { ActionIcon, Group, Menu, Modal, Stack, Text } from '@mantine/core';
+import { ActionIcon, Badge, Button, Group, Menu, Modal, Select, Stack, Text, Textarea } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconBookmark,
   IconBookmarkFilled,
+  IconBrain,
   IconChevronDown,
   IconChevronUp,
   IconDots,
@@ -17,6 +18,9 @@ import {
   IconSend,
   IconStar,
   IconStarFilled,
+  IconVolume,
+  IconVolumeOff,
+  IconX,
 } from '@tabler/icons-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -28,12 +32,37 @@ import { ShareDialog } from '@/components/ui/share-dialog';
 import { LoadingState } from '@/components/ui/loading-state';
 import { sprygramApi } from '@/lib/api-client';
 import type { ReelItem, SprygramProfile } from '@/lib/api-types';
+import { playLikeSound } from '@/lib/sounds';
 import { FAVORITE_ACCOUNTS_KEY, SAVED_POSTS_KEY, hasStoredId, toggleStoredId } from '@/lib/client-storage';
 import { formatRelativeTime } from '@/lib/time';
 import { useApiAuth } from '@/lib/use-api-auth';
 import { useDevAuth } from '@/lib/dev-auth-context';
 
 const CAPTION_PREVIEW_LIMIT = 74;
+
+const ALGORITHM_KEY = 'sprygram:algorithm:tags';
+const STOP_WORDS = new Set(['the','and','for','are','but','not','you','all','can','was','had','her','his','they','have','this','with','that','from','will','been','like','just','also','into','more','know','need','want','when','what','your']);
+
+const loadAlgorithmTags = (): Record<string, number> => {
+  try {
+    const stored = typeof window !== 'undefined' ? window.localStorage.getItem(ALGORITHM_KEY) : null;
+    return stored ? (JSON.parse(stored) as Record<string, number>) : {};
+  } catch { return {}; }
+};
+
+const saveAlgorithmTags = (tags: Record<string, number>) => {
+  try { window.localStorage.setItem(ALGORITHM_KEY, JSON.stringify(tags)); } catch { /* ignore */ }
+};
+
+const extractTagsFromCaption = (caption: string | null | undefined): string[] => {
+  if (!caption) return [];
+  return caption
+    .toLowerCase()
+    .replace(/[^a-z0-9\s#]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 4 && !STOP_WORDS.has(w))
+    .slice(0, 8);
+};
 
 export default function ReelsPage() {
   const auth = useApiAuth();
@@ -58,6 +87,15 @@ export default function ReelsPage() {
   const [reelDirection, setReelDirection] = useState<'up' | 'down'>('down');
   const [isPlaying, setIsPlaying] = useState(true);
   const [videoLoading, setVideoLoading] = useState(false);
+  const [algorithmOpen, setAlgorithmOpen] = useState(false);
+  const [algorithmTags, setAlgorithmTags] = useState<Array<{ tag: string; count: number }>>([]);
+  const [videoMuted, setVideoMuted] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState('spam');
+  const [reportDetails, setReportDetails] = useState('');
+  const [reportSubmitting, setReportSubmitting] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const wheelLockRef = useRef<number | null>(null);
 
@@ -170,19 +208,60 @@ export default function ReelsPage() {
   useEffect(() => {
     setIsPlaying(true);
     setVideoLoading(true);
+    setCurrentTime(0);
+    setDuration(0);
   }, [active?.id]);
 
   // Explicitly trigger play() when reel changes (autoPlay is unreliable in browsers)
   useEffect(() => {
     const vid = videoRef.current;
     if (!vid) return;
-    const timer = window.setTimeout(() => {
-      vid.play().catch(() => {
-        // Autoplay policy may block; user interaction will still allow play via togglePlayPause
-      });
-    }, 50);
-    return () => window.clearTimeout(timer);
+    // Call play immediately — no delay needed since we use preload="auto"
+    vid.play().catch(() => {
+      // Autoplay policy may block; user interaction will still allow play
+    });
   }, [active?.id]);
+
+  // Pause reel when comment panel is open
+  useEffect(() => {
+    const vid = videoRef.current;
+    if (!vid) return;
+    if (commentsOpen) {
+      vid.pause();
+      setIsPlaying(false);
+    } else if (isPlaying) {
+      void vid.play().catch(() => undefined);
+    }
+  }, [commentsOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Track algorithm: log tags from the caption of watched reels
+  useEffect(() => {
+    if (!active?.post.caption) return;
+    const tags = extractTagsFromCaption(active.post.caption);
+    if (!tags.length) return;
+    const current = loadAlgorithmTags();
+    for (const tag of tags) {
+      current[tag] = (current[tag] || 0) + 1;
+    }
+    saveAlgorithmTags(current);
+  }, [active?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const openAlgorithm = () => {
+    const raw = loadAlgorithmTags();
+    const sorted = Object.entries(raw)
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 30);
+    setAlgorithmTags(sorted);
+    setAlgorithmOpen(true);
+  };
+
+  const removeAlgorithmTag = (tag: string) => {
+    const current = loadAlgorithmTags();
+    delete current[tag];
+    saveAlgorithmTags(current);
+    setAlgorithmTags((prev) => prev.filter((t) => t.tag !== tag));
+  };
 
   const updateActive = (updater: (current: ReelItem) => ReelItem) => {
     setItems((previous) => previous.map((entry, index) => (index === activeIndex ? updater(entry) : entry)));
@@ -192,6 +271,7 @@ export default function ReelsPage() {
     if (!active) return;
     const optimistic = !active.post.isLiked;
     setLikePulse(true);
+    if (optimistic) playLikeSound();
 
     updateActive((entry) => ({
       ...entry,
@@ -332,16 +412,29 @@ export default function ReelsPage() {
                   ref={videoRef}
                   key={media.id}
                   src={media.url}
-                  className="h-full w-full object-cover"
+                  className="h-full w-full object-contain bg-black"
                   autoPlay
-                  muted
+                  muted={videoMuted}
                   loop
                   playsInline
+                  preload="auto"
                   onWaiting={() => setVideoLoading(true)}
                   onCanPlay={() => setVideoLoading(false)}
                   onPlaying={() => setVideoLoading(false)}
+                  onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                  onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
                   onClick={togglePlayPause}
                 />
+                {/* Mute/unmute button */}
+                <button
+                  type="button"
+                  className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition hover:bg-black/65"
+                  onClick={() => setVideoMuted((prev) => !prev)}
+                  aria-label={videoMuted ? 'Unmute reel' : 'Mute reel'}
+                  title={videoMuted ? 'Unmute reel' : 'Mute reel'}
+                >
+                  {videoMuted ? <IconVolumeOff size={16} /> : <IconVolume size={16} />}
+                </button>
                 {/* Loading indicator */}
                 {videoLoading ? (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/30">
@@ -365,7 +458,7 @@ export default function ReelsPage() {
                 ) : null}
               </>
             ) : media ? (
-              <img src={media.url} alt="Reel media" className="h-full w-full object-cover" />
+              <img src={media.url} alt="Reel media" className="h-full w-full object-contain bg-black" />
             ) : null}
 
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/35 to-transparent px-4 pb-5 pt-16 text-white">
@@ -441,7 +534,7 @@ export default function ReelsPage() {
                     </ActionIcon>
                   </Menu.Target>
                   <Menu.Dropdown>
-                    <Menu.Item leftSection={<IconFlag3 size={15} />} onClick={() => notifications.show({ color: 'orange', title: 'Reported', message: 'Thanks. We will review this reel.' })}>
+                    <Menu.Item leftSection={<IconFlag3 size={15} />} onClick={() => { setReportReason('spam'); setReportDetails(''); setReportOpen(true); }}>
                       Report
                     </Menu.Item>
                     <Menu.Item leftSection={<IconLink size={15} />} onClick={() => router.push(`/p/${active.post.id}`)}>
@@ -476,6 +569,24 @@ export default function ReelsPage() {
                 }));
               }}
             />
+
+            {/* Progress bar */}
+            {media?.mediaType === 'video' && duration > 0 ? (
+              <div
+                className="absolute inset-x-0 bottom-0 z-30 h-0.5 cursor-pointer bg-white/25"
+                onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const ratio = (e.clientX - rect.left) / rect.width;
+                  const vid = videoRef.current;
+                  if (vid) vid.currentTime = ratio * duration;
+                }}
+              >
+                <div
+                  className="h-full bg-white transition-none"
+                  style={{ width: `${(currentTime / duration) * 100}%` }}
+                />
+              </div>
+            ) : null}
           </div>
 
           <Stack gap="md" align="center" className="ml-5">
@@ -532,6 +643,15 @@ export default function ReelsPage() {
             >
               <IconChevronDown size={20} />
             </button>
+            <button
+              type="button"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-panel shadow-sm transition hover:bg-white"
+              onClick={openAlgorithm}
+              aria-label="My Algorithm"
+              title="My Algorithm"
+            >
+              <IconBrain size={20} />
+            </button>
           </div>
         </div>
       </div>
@@ -568,6 +688,98 @@ export default function ReelsPage() {
         title="reel"
         shareText={active.post.caption || `Check out @${active.post.author.username}'s reel on Sprygram.`}
       />
+
+      <Modal opened={reportOpen} onClose={() => setReportOpen(false)} centered title="Report Reel" size="sm">
+        <Stack gap="sm">
+          <Text size="sm" c="dimmed">Why are you reporting this reel?</Text>
+          <Select
+            data={[
+              { value: 'spam', label: 'Spam' },
+              { value: 'nudity', label: 'Nudity or sexual content' },
+              { value: 'violence', label: 'Violence or dangerous content' },
+              { value: 'harassment', label: 'Bullying or harassment' },
+              { value: 'hate', label: 'Hate speech or symbols' },
+              { value: 'false_info', label: 'False information' },
+              { value: 'other', label: 'Something else' },
+            ]}
+            value={reportReason}
+            onChange={(v) => setReportReason(v || 'spam')}
+            label="Reason"
+          />
+          <Textarea
+            label="Additional details (optional)"
+            placeholder="Tell us more…"
+            value={reportDetails}
+            onChange={(e) => setReportDetails(e.currentTarget.value)}
+            maxLength={500}
+            minRows={3}
+            autosize
+          />
+          <Button
+            fullWidth
+            color="red"
+            loading={reportSubmitting}
+            onClick={async () => {
+              setReportSubmitting(true);
+              await new Promise((r) => setTimeout(r, 600));
+              setReportSubmitting(false);
+              setReportOpen(false);
+              notifications.show({ color: 'teal', title: 'Report submitted', message: 'Thanks. We will review this reel.' });
+            }}
+          >
+            Submit Report
+          </Button>
+        </Stack>
+      </Modal>
+
+      <Modal opened={algorithmOpen} onClose={() => setAlgorithmOpen(false)} title="My Algorithm" centered size="md">
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            These interests are built from the reels you watch. Your feed is ranked to show more content
+            matching your top interests. Tap × to remove a topic.
+          </Text>
+          {algorithmTags.length === 0 ? (
+            <Text size="sm" c="dimmed" ta="center" py="xl">
+              Watch more reels to build your personalised algorithm.
+            </Text>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {algorithmTags.map(({ tag, count }) => (
+                <Badge
+                  key={tag}
+                  size="lg"
+                  variant="light"
+                  rightSection={
+                    <button
+                      type="button"
+                      className="ml-1 opacity-60 hover:opacity-100"
+                      onClick={() => removeAlgorithmTag(tag)}
+                      aria-label={`Remove ${tag}`}
+                    >
+                      <IconX size={12} />
+                    </button>
+                  }
+                >
+                  #{tag} &middot; {count}
+                </Badge>
+              ))}
+            </div>
+          )}
+          {algorithmTags.length > 0 && (
+            <Button
+              variant="subtle"
+              color="red"
+              size="xs"
+              onClick={() => {
+                saveAlgorithmTags({});
+                setAlgorithmTags([]);
+              }}
+            >
+              Reset all interests
+            </Button>
+          )}
+        </Stack>
+      </Modal>
     </>
   );
 }

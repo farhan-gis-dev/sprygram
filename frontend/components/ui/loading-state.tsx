@@ -30,7 +30,7 @@ export function LoadingState({
   }
 
   return (
-    <div className="flex min-h-[220px] w-full flex-col items-center justify-center gap-3">
+    <div className="flex min-h-screen w-full flex-col items-center justify-center gap-3">
       <div className="relative h-9 w-9">
         <div className="absolute inset-0 rounded-full border-2 border-border" />
         <div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-[var(--spry-accent)]" />

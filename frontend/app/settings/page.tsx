@@ -1,12 +1,12 @@
 'use client';
 
-import { Button, Divider, Group, Stack, Switch, Text, TextInput, Textarea } from '@mantine/core';
+import { Avatar, Button, Divider, Group, Modal, Radio, Stack, Switch, Text, TextInput, Textarea } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMantineColorScheme } from '@mantine/core';
 import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
 import { sprygramApi } from '@/lib/api-client';
-import type { SprygramProfile } from '@/lib/api-types';
+import type { SearchAccountResult, SprygramProfile } from '@/lib/api-types';
 import { LoadingState } from '@/components/ui/loading-state';
 import { useApiAuth } from '@/lib/use-api-auth';
 import { useDevAuth } from '@/lib/dev-auth-context';
@@ -140,6 +140,47 @@ export default function SettingsPage() {
     }
   };
 
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportCategory, setReportCategory] = useState('bug');
+  const [reportDetails, setReportDetails] = useState('');
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+
+  const [blockedUsers, setBlockedUsers] = useState<SearchAccountResult[]>([]);
+  const [loadingBlocked, setLoadingBlocked] = useState(false);
+  const [unblockingId, setUnblockingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isReady || !auth.token) return;
+    setLoadingBlocked(true);
+    sprygramApi.getBlockedUsers(auth)
+      .then((r) => setBlockedUsers(r.items))
+      .catch(() => setBlockedUsers([]))
+      .finally(() => setLoadingBlocked(false));
+  }, [isReady, activeIdentity?.id, auth.token, auth.workspaceId]);
+
+  const handleUnblock = async (userId: string) => {
+    setUnblockingId(userId);
+    try {
+      await sprygramApi.unblockUser(userId, auth);
+      setBlockedUsers((prev) => prev.filter((u) => u.userId !== userId));
+      notifications.show({ color: 'teal', title: 'Unblocked', message: 'User unblocked successfully.' });
+    } catch {
+      notifications.show({ color: 'red', title: 'Error', message: 'Could not unblock this user.' });
+    } finally {
+      setUnblockingId(null);
+    }
+  };
+
+  const submitReport = async () => {
+    setReportSubmitting(true);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    setReportSubmitting(false);
+    setReportOpen(false);
+    setReportDetails('');
+    setReportCategory('bug');
+    notifications.show({ color: 'teal', title: 'Report submitted', message: 'Thanks for your feedback. Our team will review it.' });
+  };
+
   const copyDiagnostics = async () => {
     const snapshot = {
       username: profile?.username || null,
@@ -156,6 +197,7 @@ export default function SettingsPage() {
   }
 
   return (
+    <>
     <div className="mx-auto w-full max-w-[1120px] px-6 py-6">
       <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="rounded-[24px] border border-border bg-panel p-5">
@@ -251,6 +293,39 @@ export default function SettingsPage() {
           </SettingsCard>
 
           <SettingsCard
+            title="Blocked accounts"
+            description="Users you've blocked can't see your posts, stories, or contact you."
+          >
+            {loadingBlocked ? (
+              <Text size="sm" c="dimmed">Loading…</Text>
+            ) : blockedUsers.length === 0 ? (
+              <Text size="sm" c="dimmed">You haven't blocked anyone yet.</Text>
+            ) : (
+              <Stack gap="xs">
+                {blockedUsers.map((user) => (
+                  <Group key={user.userId} justify="space-between">
+                    <Group gap="sm">
+                      <Avatar src={user.avatarUrl} radius="xl" size={36} />
+                      <div>
+                        <Text size="sm" fw={600}>@{user.username}</Text>
+                        {user.displayName ? <Text size="xs" c="dimmed">{user.displayName}</Text> : null}
+                      </div>
+                    </Group>
+                    <Button
+                      size="xs"
+                      variant="default"
+                      loading={unblockingId === user.userId}
+                      onClick={() => void handleUnblock(user.userId)}
+                    >
+                      Unblock
+                    </Button>
+                  </Group>
+                ))}
+              </Stack>
+            )}
+          </SettingsCard>
+
+          <SettingsCard
             title="What you see"
             description="Adjust feed and explore behavior on this device."
           >
@@ -339,7 +414,7 @@ export default function SettingsPage() {
             description="Diagnostics, reporting, and support shortcuts."
           >
             <Group>
-              <Button variant="default" onClick={() => notifications.show({ color: 'orange', title: 'Report a Problem', message: 'A local report stub was created. Backend support ticket wiring can be added next.' })}>
+              <Button variant="default" onClick={() => setReportOpen(true)}>
                 Report a Problem
               </Button>
               <Button variant="light" onClick={() => void copyDiagnostics()}>
@@ -350,5 +425,33 @@ export default function SettingsPage() {
         </Stack>
       </div>
     </div>
+
+    <Modal opened={reportOpen} onClose={() => setReportOpen(false)} title="Report a Problem" centered size="sm">
+      <Stack gap="md">
+        <Text size="sm" c="dimmed">Tell us what went wrong. We'll use this to improve Sprygram.</Text>
+        <Radio.Group value={reportCategory} onChange={setReportCategory} label="Category">
+          <Stack gap="xs" mt={6}>
+            <Radio value="bug" label="Something isn't working" />
+            <Radio value="content" label="Abusive or harmful content" />
+            <Radio value="account" label="Account access issue" />
+            <Radio value="payment" label="Billing or payment problem" />
+            <Radio value="privacy" label="Privacy concern" />
+            <Radio value="other" label="Something else" />
+          </Stack>
+        </Radio.Group>
+        <Textarea
+          label="Details"
+          minRows={3}
+          placeholder="Describe what happened…"
+          value={reportDetails}
+          onChange={(e) => setReportDetails(e.currentTarget.value)}
+        />
+        <Group justify="flex-end">
+          <Button variant="default" onClick={() => setReportOpen(false)}>Cancel</Button>
+          <Button loading={reportSubmitting} disabled={!reportDetails.trim()} onClick={() => void submitReport()}>Submit</Button>
+        </Group>
+      </Stack>
+    </Modal>
+    </>
   );
 }

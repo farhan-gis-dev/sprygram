@@ -1,8 +1,10 @@
 'use client';
 
 import {
+  ActionIcon,
   Badge,
   Button,
+  Divider,
   Group,
   Loader,
   Modal,
@@ -17,6 +19,7 @@ import {
   Text,
   TextInput,
   Textarea,
+  Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -168,6 +171,70 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
     sprygramApi.getMyProfile(auth).then(setMe).catch(() => setMe(null));
   }, [auth.token, auth.workspaceId]);
 
+  // AI Smart Caption generator (client-side pattern-based)
+  const generateAiSuggestions = () => {
+    setAiGenerating(true);
+    const firstFileType = files[0]?.type ?? '';
+    const isVideo = firstFileType.startsWith('video');
+    const locationHint = location.trim();
+    const tags = taggedPeople.map((p) => `@${p.username}`);
+    const isReel = mode === 'reel';
+
+    const baseTemplates: string[] = isReel
+      ? [
+          'Behind the scenes never looked this good 🎬✨',
+          'Just vibing — catch up or stay behind 🚀',
+          'POV: When the moment is too good not to share 🎥',
+          'Story time — swipe for the full picture 👀',
+          'Making memories that hit different 🎞️',
+        ]
+      : [
+          'Golden hour never misses ✨',
+          'Just another chapter in this beautiful story 📖',
+          'Living for moments like these 🌟',
+          'The view from here is everything 🌄',
+          'Some things are worth stopping for 🕊️',
+          'Not all those who wander are lost 🌿',
+        ];
+
+    const locationTemplates = locationHint
+      ? [
+          `Somewhere in ${locationHint} ✈️`,
+          `${locationHint} never disappoints 📍`,
+          `Greetings from ${locationHint} 🌍`,
+        ]
+      : [];
+
+    const videoTemplates = isVideo && !isReel
+      ? ['Hit play and turn the sound up 🔊', "Words can't describe it — just watch 🎬"]
+      : [];
+
+    const tagTemplate = tags.length > 0 ? [`Sharing this with the best 🤝 ${tags.join(' ')} `] : [];
+
+    const allOptions = [
+      ...baseTemplates,
+      ...locationTemplates,
+      ...videoTemplates,
+      ...tagTemplate,
+    ].sort(() => Math.random() - 0.5).slice(0, 4);
+
+    const hashtagSets: string[][] = isReel
+      ? [['#reels', '#fyp', '#viral', '#trending', '#shortform']]
+      : [
+          ['#photography', '#photooftheday', '#instagood', '#beautiful'],
+          ['#lifestyle', '#vibes', '#mood', '#aesthetic'],
+          ['#explore', '#discover', '#travel', '#wanderlust'],
+        ];
+    const hashtags = hashtagSets[Math.floor(Math.random() * hashtagSets.length)]!;
+    if (locationHint) hashtags.push(`#${locationHint.toLowerCase().replace(/\s+/g, '')}`);
+
+    setTimeout(() => {
+      setAiSuggestions(allOptions);
+      setAiHashtags(hashtags);
+      setAiGenerating(false);
+    }, 600);
+  };
+
   const previews = useMemo<PreviewItem[]>(
     () => files.map((file, index) => ({
       key: createPreviewKey(file, index),
@@ -212,12 +279,26 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=8&accept-language=en`,
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=12&accept-language=en&addressdetails=1`,
         { signal: controller.signal, headers: { 'Accept-Language': 'en' } },
       )
         .then((res) => res.json())
-        .then((results: Array<{ display_name: string }>) => {
-          setLocationSuggestions(results.map((r) => r.display_name));
+        .then((results: Array<{ address: Record<string, string> }>) => {
+          const seen = new Set<string>();
+          const formatted: string[] = [];
+          for (const r of results) {
+            const a = r.address || {};
+            const place = a.city || a.town || a.village || a.municipality || a.county || a.state;
+            const country = a.country;
+            if (place && country) {
+              const label = `${place}, ${country}`;
+              if (!seen.has(label)) { seen.add(label); formatted.push(label); }
+            } else if (country) {
+              if (!seen.has(country)) { seen.add(country); formatted.push(country); }
+            }
+            if (formatted.length >= 6) break;
+          }
+          setLocationSuggestions(formatted);
         })
         .catch(() => {/* ignore aborted / network errors */})
         .finally(() => setLocationLoading(false));
@@ -833,7 +914,7 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
                       <Button variant="default" onClick={() => setStep('enhance')}>Reopen filters</Button>
                     </Group>
                     <Stack gap={4} align="flex-end">
-                      {submitting && uploadPercent > 0 && uploadPercent < 100 ? (
+                      {submitting && uploadPercent > 0 ? (
                         <div className="flex items-center gap-2">
                           <div className="h-1.5 w-32 overflow-hidden rounded-full bg-gray-200">
                             <div
@@ -841,7 +922,11 @@ export function PostComposer({ mode = 'post', onCreated }: Props) {
                               style={{ width: `${uploadPercent}%` }}
                             />
                           </div>
-                          <Text size="xs" c="dimmed">{uploadPercent}%{uploadEta ? ` · ${uploadEta}` : ''}</Text>
+                          <Text size="xs" c="dimmed">
+                            {uploadPercent < 100
+                              ? `${uploadPercent}%${uploadEta ? ` · ${uploadEta}` : ''}`
+                              : 'Finalizing…'}
+                          </Text>
                         </div>
                       ) : null}
                       <Button disabled={!canSubmit} loading={submitting} onClick={() => void submit()}>

@@ -19,6 +19,7 @@ import { useApiAuth } from '@/lib/use-api-auth';
 import { formatRelativeTime } from '@/lib/time';
 import { ProfileAvatar } from '@/components/ui/profile-avatar';
 import { ShareDialog } from '@/components/ui/share-dialog';
+import { playLikeSound } from '@/lib/sounds';
 
 type Props = {
   username: string | null;
@@ -63,6 +64,7 @@ export function StoryViewer({ username, usernames = [], opened, onClose, onAccou
   const [shareOpen, setShareOpen] = useState(false);
   const [storyLiked, setStoryLiked] = useState<Record<string, boolean>>({});
   const [pendingEdge, setPendingEdge] = useState<'first' | 'last'>('first');
+  const pausedByInputRef = useRef(false);
 
   const activeUsername = orderedUsernames[activeUsernameIndex] || username || null;
   const stories = storyData?.items || [];
@@ -286,6 +288,7 @@ export function StoryViewer({ username, usernames = [], opened, onClose, onAccou
 
   const likeStory = async () => {
     if (!activeStory || storyLiked[activeStory.id]) return;
+    playLikeSound();
     await submitReply('\u2764\uFE0F');
     setStoryLiked((previousValue) => ({ ...previousValue, [activeStory.id]: true }));
   };
@@ -419,6 +422,18 @@ export function StoryViewer({ username, usernames = [], opened, onClose, onAccou
                           borderColor: 'rgba(255,255,255,0.25)',
                           color: '#fff',
                         },
+                      }}
+                      onFocus={() => {
+                        if (!paused) {
+                          pausedByInputRef.current = true;
+                          setPaused(true);
+                        }
+                      }}
+                      onBlur={() => {
+                        if (pausedByInputRef.current) {
+                          pausedByInputRef.current = false;
+                          setPaused(false);
+                        }
                       }}
                       onKeyDown={(event) => {
                         if (event.key !== 'Enter') return;

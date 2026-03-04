@@ -312,3 +312,41 @@ export type LiveRoomView = {
   viewerCount: number;
   startedAt: string;
 };
+
+export type ReportItem = {
+  id: string;
+  entityType: 'post' | 'reel' | 'story' | 'profile' | 'comment';
+  entityId: string;
+  reason: string;
+  details: string | null;
+  status: 'pending' | 'dismissed' | 'actioned';
+  createdAt: string;
+  reporter: {
+    userId: string;
+    username: string;
+    displayName: string | null;
+    avatarUrl: string | null;
+  } | null;
+};
+
+export type GroupConversation = {
+  threadId: string;
+  name: string;
+  avatarUrl: string | null;
+  memberCount: number;
+  members: {
+    userId: string;
+    username: string;
+    displayName: string | null;
+    avatarUrl: string | null;
+  }[];
+  lastMessage: {
+    id: string;
+    content: string | null;
+    senderId: string;
+    senderUsername: string;
+    createdAt: string;
+  } | null;
+  unreadCount: number;
+  isGroup: true;
+};

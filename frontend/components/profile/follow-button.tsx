@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import type { FollowStatus } from '@/lib/api-types';
 import { sprygramApi } from '@/lib/api-client';
 import { useApiAuth } from '@/lib/use-api-auth';
+import { playFollowSound } from '@/lib/sounds';
 
 type Props = {
   targetUserId: string;
@@ -40,6 +41,7 @@ export function FollowButton({
   const emit = (next: FollowStatus) => {
     setStatus(next);
     setPulse(true);
+    if (next !== 'none') playFollowSound();
     onStatusChange?.(next);
   };
 

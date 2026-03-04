@@ -82,7 +82,7 @@ export function StoryComposer({ onCreated }: Props) {
         </Stack>
 
         {!file ? (
-          <label className="flex min-h-[360px] cursor-pointer flex-col items-center justify-center rounded-[24px] border border-dashed border-border bg-[#fafafa] text-center transition hover:bg-[#f5f7fa]">
+          <label className="flex min-h-[360px] cursor-pointer flex-col items-center justify-center rounded-[24px] border border-dashed border-border bg-[var(--color-canvas)] text-center transition hover:bg-[var(--color-hover)]">
             <IconUpload size={36} />
             <Text fw={700} mt={16}>Add to your story</Text>
             <Text size="sm" c="dimmed" mt={6}>Choose one photo or video from your device.</Text>

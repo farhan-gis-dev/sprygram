@@ -104,10 +104,10 @@ export function MessageBubble({ message }: Props) {
   const surfaceClass = media || rich
     ? message.mine
       ? 'rounded-[24px] bg-[#1f7ae0] px-2 py-2 text-white'
-      : 'rounded-[24px] bg-[#e4e9ef] px-2 py-2 text-[#111827] shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]'
+      : 'rounded-[24px] bg-[var(--color-hover)] border border-border px-2 py-2'
     : message.mine
       ? 'rounded-[22px] bg-[#1f7ae0] px-4 py-3 text-white'
-      : 'rounded-[22px] bg-[#e4e9ef] px-4 py-3 text-[#111827] shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]';
+      : 'rounded-[22px] bg-[var(--color-hover)] border border-border px-4 py-3';
 
   return (
     <Group justify={message.mine ? 'flex-end' : 'flex-start'}>
@@ -137,7 +137,7 @@ export function MessageBubble({ message }: Props) {
 
         <div className={`${surfaceClass}`}>
           {media ? (
-            <div className={`overflow-hidden rounded-[22px] border p-1 ${message.mine ? 'border-black/5 bg-black/5' : 'border-[#cfd6de] bg-[#eef2f6]'}`}>
+            <div className={`overflow-hidden rounded-[22px] border p-1 ${message.mine ? 'border-black/5 bg-black/5' : 'border-border bg-[var(--color-input-bg)]'}`}>
               {media}
             </div>
           ) : null}

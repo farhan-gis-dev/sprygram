@@ -31,6 +31,7 @@ export default function FeedPage() {
   const [selectedStoryUsername, setSelectedStoryUsername] = useState<string | null>(null);
   const [suggestedAccounts, setSuggestedAccounts] = useState<SearchAccountResult[]>([]);
   const [liveRooms, setLiveRooms] = useState<LiveRoomView[]>([]);
+  const [suggestedReady, setSuggestedReady] = useState(false);
 
   const loadFeed = async (cursor?: string | null) => {
     if (cursor) setLoadingMore(true);
@@ -64,6 +65,7 @@ export default function FeedPage() {
         setStoryTray(tray.items || []);
         setSuggestedAccounts((search.items || []).filter((item) => item.userId !== meProfile?.userId).slice(0, 6));
         setLiveRooms((live.items || []).filter((r: LiveRoomView) => r.status === 'live').slice(0, 10));
+        setSuggestedReady(true);
       });
   }, [isReady, activeIdentity?.id, auth.token, auth.workspaceId]);
 
@@ -82,7 +84,7 @@ export default function FeedPage() {
   if (!isReady) return <LoadingState message="Preparing feed..." />;
 
   return (
-    <div className="mx-auto grid w-full max-w-[1060px] grid-cols-1 gap-8 px-6 py-6 lg:grid-cols-[minmax(0,640px)_300px]">
+    <div className="mx-auto grid w-full max-w-[800px] grid-cols-1 gap-4 px-4 py-6 lg:grid-cols-[470px_1fr]">
       <section>
         {/* Story tray — live rooms integrated as first items */}
         <div className="mb-4">
@@ -200,33 +202,35 @@ export default function FeedPage() {
 
       <aside className="hidden lg:block">
         <Stack gap="md" className="sticky top-5">
-          <div className="rounded-xl border border-border bg-panel p-4">
-            <Group justify="space-between" mb={8}>
-              <Text size="sm" fw={700}>Suggested for you</Text>
-              <Text size="xs" c="dimmed">See all</Text>
-            </Group>
-            <Stack gap="xs">
-              {suggestedAccounts.map((account) => (
-                <button
-                  key={account.userId}
-                  type="button"
-                  className="w-full rounded-md px-1 py-1 text-left hover:bg-hover"
-                  onClick={() => router.push(`/u/${encodeURIComponent(account.username)}`)}
-                >
-                  <Group wrap="nowrap" justify="space-between">
-                    <Group wrap="nowrap">
-                      <ProfileAvatar size={32} src={account.avatarUrl} name={account.displayName || account.username} />
-                      <div>
-                        <Text size="xs" fw={700}>{account.username}</Text>
-                        <Text size="10px" c="dimmed" lineClamp={1}>{account.displayName || 'Sprysnap account'}</Text>
-                      </div>
+          {suggestedReady ? (
+            <div className="rounded-xl border border-border bg-panel p-4">
+              <Group justify="space-between" mb={8}>
+                <Text size="sm" fw={700}>Suggested for you</Text>
+                <Text size="xs" c="dimmed">See all</Text>
+              </Group>
+              <Stack gap="xs">
+                {suggestedAccounts.map((account) => (
+                  <button
+                    key={account.userId}
+                    type="button"
+                    className="w-full rounded-md px-1 py-1 text-left hover:bg-hover"
+                    onClick={() => router.push(`/u/${encodeURIComponent(account.username)}`)}
+                  >
+                    <Group wrap="nowrap" justify="space-between">
+                      <Group wrap="nowrap">
+                        <ProfileAvatar size={32} src={account.avatarUrl} name={account.displayName || account.username} />
+                        <div>
+                          <Text size="xs" fw={700}>{account.username}</Text>
+                          <Text size="10px" c="dimmed" lineClamp={1}>{account.displayName || 'Sprysnap account'}</Text>
+                        </div>
+                      </Group>
+                      <Text size="xs" c="blue">View</Text>
                     </Group>
-                    <Text size="xs" c="blue">View</Text>
-                  </Group>
-                </button>
-              ))}
-            </Stack>
-          </div>
+                  </button>
+                ))}
+              </Stack>
+            </div>
+          ) : null}
 
           <FollowRequestsPanel />
         </Stack>

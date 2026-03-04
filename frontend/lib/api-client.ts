@@ -140,6 +140,26 @@ export const sprygramApi = {
   getProfileByUsername: (username: string, auth?: ApiAuth) =>
     request<SprygramProfile>(`/api/sprygram/profiles/${encodeURIComponent(username)}`, {}, auth),
 
+  getProfileFollowers: (username: string, params: { limit?: number } = {}, auth?: ApiAuth) => {
+    const query = new URLSearchParams();
+    if (params.limit) query.set('limit', String(params.limit));
+    return request<{ items: import('./api-types').SearchAccountResult[] }>(
+      `/api/sprygram/profiles/${encodeURIComponent(username)}/followers${query.toString() ? `?${query.toString()}` : ''}`,
+      {},
+      auth,
+    );
+  },
+
+  getProfileFollowing: (username: string, params: { limit?: number } = {}, auth?: ApiAuth) => {
+    const query = new URLSearchParams();
+    if (params.limit) query.set('limit', String(params.limit));
+    return request<{ items: import('./api-types').SearchAccountResult[] }>(
+      `/api/sprygram/profiles/${encodeURIComponent(username)}/following${query.toString() ? `?${query.toString()}` : ''}`,
+      {},
+      auth,
+    );
+  },
+
   getProfilePosts: (
     username: string,
     params: { limit?: number; cursor?: string | null } = {},
@@ -151,6 +171,22 @@ export const sprygramApi = {
 
     return request<ProfilePostsResponse>(
       `/api/sprygram/profiles/${encodeURIComponent(username)}/posts${query.toString() ? `?${query.toString()}` : ''}`,
+      {},
+      auth,
+    );
+  },
+
+  getProfileReels: (
+    username: string,
+    params: { limit?: number; cursor?: string | null } = {},
+    auth?: ApiAuth,
+  ) => {
+    const query = new URLSearchParams();
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.cursor) query.set('cursor', params.cursor);
+
+    return request<ReelsResponse>(
+      `/api/sprygram/profiles/${encodeURIComponent(username)}/reels${query.toString() ? `?${query.toString()}` : ''}`,
       {},
       auth,
     );
@@ -508,4 +544,92 @@ export const sprygramApi = {
     if (params.cursor) query.set('cursor', params.cursor);
     return request<ActivityResponse>(`/api/sprygram/activity?${query.toString()}`, {}, auth);
   },
+
+  // ── Block / Restrict ────────────────────────────────────────────────────────
+  blockUser: (targetUserId: string, auth?: ApiAuth) =>
+    request<{ blocked: boolean }>(`/api/sprygram/profiles/${targetUserId}/block`, { method: 'POST' }, auth),
+
+  unblockUser: (targetUserId: string, auth?: ApiAuth) =>
+    request<{ blocked: boolean }>(`/api/sprygram/profiles/${targetUserId}/block`, { method: 'DELETE' }, auth),
+
+  getBlockedUsers: (auth?: ApiAuth) =>
+    request<{ items: import('./api-types').SearchAccountResult[] }>('/api/sprygram/profiles/blocked', {}, auth),
+
+  restrictUser: (targetUserId: string, auth?: ApiAuth) =>
+    request<{ restricted: boolean }>(`/api/sprygram/profiles/${targetUserId}/restrict`, { method: 'POST' }, auth),
+
+  unrestrictUser: (targetUserId: string, auth?: ApiAuth) =>
+    request<{ restricted: boolean }>(`/api/sprygram/profiles/${targetUserId}/restrict`, { method: 'DELETE' }, auth),
+
+  // ── Explore / Discovery ─────────────────────────────────────────────────────
+  getExplorePosts: (params: { limit?: number; cursor?: string | null } = {}, auth?: ApiAuth) => {
+    const query = new URLSearchParams();
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.cursor) query.set('cursor', params.cursor);
+    return request<import('./api-types').FeedResponse>(
+      `/api/sprygram/explore${query.toString() ? `?${query.toString()}` : ''}`,
+      {},
+      auth,
+    );
+  },
+
+  getSuggestedAccounts: (params: { limit?: number } = {}, auth?: ApiAuth) => {
+    const query = new URLSearchParams();
+    if (params.limit) query.set('limit', String(params.limit));
+    return request<{ items: import('./api-types').SearchAccountResult[] }>(
+      `/api/sprygram/profiles/suggested${query.toString() ? `?${query.toString()}` : ''}`,
+      {},
+      auth,
+    );
+  },
+
+  // ── Admin / Moderation ───────────────────────────────────────────────────────
+  getAdminReports: (params: { limit?: number; cursor?: string | null; status?: string } = {}, auth?: ApiAuth) => {
+    const query = new URLSearchParams();
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.cursor) query.set('cursor', params.cursor);
+    if (params.status) query.set('status', params.status);
+    return request<{ items: import('./api-types').ReportItem[]; nextCursor: string | null }>(
+      `/api/sprygram/admin/reports${query.toString() ? `?${query.toString()}` : ''}`,
+      {},
+      auth,
+    );
+  },
+
+  resolveAdminReport: (reportId: string, action: 'dismiss' | 'warn' | 'remove', auth?: ApiAuth) =>
+    request<{ id: string; status: string }>(`/api/sprygram/admin/reports/${reportId}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }, auth),
+
+  getAdminUsers: (params: { limit?: number; cursor?: string | null; query?: string } = {}, auth?: ApiAuth) => {
+    const qs = new URLSearchParams();
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.cursor) qs.set('cursor', params.cursor);
+    if (params.query) qs.set('query', params.query);
+    return request<{ items: import('./api-types').SprygramProfile[]; nextCursor: string | null }>(
+      `/api/sprygram/admin/users${qs.toString() ? `?${qs.toString()}` : ''}`,
+      {},
+      auth,
+    );
+  },
+
+  banUser: (targetUserId: string, reason: string, auth?: ApiAuth) =>
+    request<{ banned: boolean }>(`/api/sprygram/admin/users/${targetUserId}/ban`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }, auth),
+
+  deletePostAdmin: (postId: string, auth?: ApiAuth) =>
+    request<{ deleted: boolean }>(`/api/sprygram/admin/posts/${postId}`, { method: 'DELETE' }, auth),
+
+  // ── Group Conversations ──────────────────────────────────────────────────────
+  createGroupConversation: (
+    body: { name: string; memberUserIds: string[] },
+    auth?: ApiAuth,
+  ) =>
+    request<import('./api-types').Conversation>('/api/sprygram/messages/groups', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }, auth),
 };

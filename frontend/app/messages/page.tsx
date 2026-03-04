@@ -1,12 +1,12 @@
 'use client';
 
-import { Group, Stack, Text, TextInput } from '@mantine/core';
+import { Group, Modal, Stack, Text, TextInput, Button, Badge, ActionIcon } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconEdit, IconSearch } from '@tabler/icons-react';
+import { IconEdit, IconSearch, IconUsersGroup, IconX } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { sprygramApi } from '@/lib/api-client';
-import type { Conversation, DirectMessage, SprygramProfile } from '@/lib/api-types';
+import type { Conversation, DirectMessage, SearchAccountResult, SprygramProfile } from '@/lib/api-types';
 import { useApiAuth } from '@/lib/use-api-auth';
 import { useDevAuth } from '@/lib/dev-auth-context';
 import { summarizeRichMessageContent } from '@/lib/message-rich-content';
@@ -24,6 +24,19 @@ export default function MessagesPage() {
   const [me, setMe] = useState<SprygramProfile | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
+  const [newMsgOpen, setNewMsgOpen] = useState(false);
+  const [newMsgSearch, setNewMsgSearch] = useState('');
+  const [newMsgResults, setNewMsgResults] = useState<SearchAccountResult[]>([]);
+  const [newMsgLoading, setNewMsgLoading] = useState(false);
+
+  // Group conversation state
+  const [newGroupOpen, setNewGroupOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupMembers, setNewGroupMembers] = useState<SearchAccountResult[]>([]);
+  const [newGroupSearch, setNewGroupSearch] = useState('');
+  const [newGroupResults, setNewGroupResults] = useState<SearchAccountResult[]>([]);
+  const [newGroupSearchLoading, setNewGroupSearchLoading] = useState(false);
+  const [newGroupCreating, setNewGroupCreating] = useState(false);
   const [threadLoading, setThreadLoading] = useState(false);
   const [thread, setThread] = useState<DirectMessage[]>([]);
   const [threadCursor, setThreadCursor] = useState<string | null>(null);
@@ -230,7 +243,66 @@ export default function MessagesPage() {
     return <LoadingState message="Loading messages..." />;
   }
 
+  const handleNewMsgSearch = async (q: string) => {
+    setNewMsgSearch(q);
+    if (!q.trim()) { setNewMsgResults([]); return; }
+    setNewMsgLoading(true);
+    try {
+      const res = await sprygramApi.searchAccounts(q.trim(), 20, auth);
+      setNewMsgResults(res.items || []);
+    } catch { setNewMsgResults([]); }
+    finally { setNewMsgLoading(false); }
+  };
+
+  const startConversation = (userId: string) => {
+    setSelectedPeerId(userId);
+    setNewMsgOpen(false);
+  };
+
+  const handleGroupSearch = async (q: string) => {
+    setNewGroupSearch(q);
+    if (!q.trim()) { setNewGroupResults([]); return; }
+    setNewGroupSearchLoading(true);
+    try {
+      const res = await sprygramApi.searchAccounts(q.trim(), 20, auth);
+      setNewGroupResults(res.items.filter((u) => !newGroupMembers.some((m) => m.userId === u.userId)) || []);
+    } catch { setNewGroupResults([]); }
+    finally { setNewGroupSearchLoading(false); }
+  };
+
+  const addGroupMember = (user: SearchAccountResult) => {
+    setNewGroupMembers((prev) => [...prev, user]);
+    setNewGroupResults((prev) => prev.filter((u) => u.userId !== user.userId));
+    setNewGroupSearch('');
+  };
+
+  const removeGroupMember = (userId: string) => {
+    setNewGroupMembers((prev) => prev.filter((u) => u.userId !== userId));
+  };
+
+  const handleCreateGroup = async () => {
+    if (!newGroupName.trim() || newGroupMembers.length < 2) return;
+    setNewGroupCreating(true);
+    try {
+      await sprygramApi.createGroupConversation(
+        { name: newGroupName.trim(), memberUserIds: newGroupMembers.map((m) => m.userId) },
+        auth,
+      );
+      setNewGroupOpen(false);
+      setNewGroupName('');
+      setNewGroupMembers([]);
+      setNewGroupSearch('');
+      notifications.show({ color: 'teal', title: 'Group created', message: `"${newGroupName}" group conversation started.` });
+    } catch {
+      notifications.show({ color: 'orange', title: 'Group not available', message: 'Group messaging requires a backend update. Stay tuned!' });
+      setNewGroupOpen(false);
+    } finally {
+      setNewGroupCreating(false);
+    }
+  };
+
   return (
+    <>
     <div className="mx-auto flex h-[calc(100vh-24px)] max-w-[1200px] border border-border bg-panel">
       <aside className="w-[360px] border-r border-border">
         <div className="border-b border-border px-4 py-3">
@@ -243,7 +315,10 @@ export default function MessagesPage() {
               <Link href="/messages/requests" className="rounded-full bg-[#f3f4f6] px-3 py-1.5 text-xs font-semibold text-[#111827] hover:bg-[#e5e7eb]">
                 Requests {requestCount > 0 ? `(${requestCount})` : ''}
               </Link>
-              <button type="button" className="rounded-md p-1 hover:bg-gray-100" aria-label="Start a new message" title="Start a new message">
+              <button type="button" className="rounded-md p-1 hover:bg-gray-100" aria-label="New group conversation" title="New group conversation" onClick={() => { setNewGroupName(''); setNewGroupMembers([]); setNewGroupSearch(''); setNewGroupResults([]); setNewGroupOpen(true); }}>
+                <IconUsersGroup size={18} />
+              </button>
+              <button type="button" className="rounded-md p-1 hover:bg-gray-100" aria-label="Start a new message" title="Start a new message" onClick={() => { setNewMsgSearch(''); setNewMsgResults([]); setNewMsgOpen(true); }}>
                 <IconEdit size={18} />
               </button>
             </Group>
@@ -348,5 +423,124 @@ export default function MessagesPage() {
         )}
       </section>
     </div>
+
+      <Modal
+        opened={newMsgOpen}
+        onClose={() => setNewMsgOpen(false)}
+        title="New Message"
+        centered
+        size="sm"
+      >
+        <TextInput
+          placeholder="Search people…"
+          leftSection={<IconSearch size={14} />}
+          value={newMsgSearch}
+          onChange={(e) => void handleNewMsgSearch(e.currentTarget.value)}
+          autoFocus
+        />
+        <Stack gap={0} mt="sm">
+          {newMsgLoading ? (
+            <Text size="sm" c="dimmed" px={4} py={6}>Searching…</Text>
+          ) : newMsgResults.length === 0 && newMsgSearch ? (
+            <Text size="sm" c="dimmed" px={4} py={6}>No users found.</Text>
+          ) : (
+            newMsgResults.map((user) => (
+              <button
+                key={user.userId}
+                type="button"
+                className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-gray-100"
+                onClick={() => startConversation(user.userId)}
+              >
+                <ProfileAvatar size={36} src={user.avatarUrl} name={user.displayName || user.username} />
+                <Stack gap={0}>
+                  <Text size="sm" fw={700}>{user.username}</Text>
+                  {user.displayName ? <Text size="xs" c="dimmed">{user.displayName}</Text> : null}
+                </Stack>
+              </button>
+            ))
+          )}
+        </Stack>
+      </Modal>
+
+      {/* New Group Conversation Modal */}
+      <Modal
+        opened={newGroupOpen}
+        onClose={() => setNewGroupOpen(false)}
+        title="New Group Conversation"
+        centered
+        size="sm"
+      >
+        <Stack gap="md">
+          <TextInput
+            label="Group name"
+            placeholder="e.g. Team, Friends, Project…"
+            value={newGroupName}
+            onChange={(e) => setNewGroupName(e.currentTarget.value)}
+            maxLength={64}
+          />
+
+          <div>
+            <Text size="xs" fw={600} c="dimmed" mb="xs">Add members (at least 2)</Text>
+            {newGroupMembers.length > 0 && (
+              <Group gap="xs" mb="xs" wrap="wrap">
+                {newGroupMembers.map((member) => (
+                  <Badge
+                    key={member.userId}
+                    variant="light"
+                    rightSection={
+                      <ActionIcon size="xs" variant="transparent" onClick={() => removeGroupMember(member.userId)} aria-label={`Remove ${member.username}`}>
+                        <IconX size={10} />
+                      </ActionIcon>
+                    }
+                  >
+                    @{member.username}
+                  </Badge>
+                ))}
+              </Group>
+            )}
+            <TextInput
+              placeholder="Search people to add…"
+              leftSection={<IconSearch size={14} />}
+              value={newGroupSearch}
+              onChange={(e) => void handleGroupSearch(e.currentTarget.value)}
+            />
+            <Stack gap={0} mt="xs">
+              {newGroupSearchLoading ? (
+                <Text size="xs" c="dimmed" px={4} py={4}>Searching…</Text>
+              ) : newGroupResults.length === 0 && newGroupSearch ? (
+                <Text size="xs" c="dimmed" px={4} py={4}>No users found.</Text>
+              ) : (
+                newGroupResults.map((user) => (
+                  <button
+                    key={user.userId}
+                    type="button"
+                    className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-gray-100"
+                    onClick={() => addGroupMember(user)}
+                  >
+                    <ProfileAvatar size={32} src={user.avatarUrl} name={user.displayName || user.username} />
+                    <Stack gap={0}>
+                      <Text size="sm" fw={700}>{user.username}</Text>
+                      {user.displayName ? <Text size="xs" c="dimmed">{user.displayName}</Text> : null}
+                    </Stack>
+                  </button>
+                ))
+              )}
+            </Stack>
+          </div>
+
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setNewGroupOpen(false)}>Cancel</Button>
+            <Button
+              loading={newGroupCreating}
+              disabled={!newGroupName.trim() || newGroupMembers.length < 2}
+              onClick={() => void handleCreateGroup()}
+              leftSection={<IconUsersGroup size={15} />}
+            >
+              Create Group
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+    </>
   );
 }

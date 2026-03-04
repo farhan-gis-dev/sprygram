@@ -1,7 +1,5 @@
-2. Comments should show on the bottom of inside of stories too, just like instagram, with maybe a scroll.
-4. In location, only show like cities, countries, etc, not addresses and each city,etc should be one per row, right now you put all of them together seperated by ','.
-5. Uploading time showed once but vanished, it should be like a countdown according to the upload time and internet speed
-Cannot read properties of undefined (reading 'map')
-9. Reel/video takes tooo tooo much long time to start playing. Its playing fine in home /feed but not fine in reels.
-11. Notification still not working correct, just do one thing, clicking the specific notification should just navigate to the post they liked/commented or take to messages if they messaged. But if i click ther Profile picture in the notifications ection, go to their profile
-14. GIF and Stickers not working properly. Users should be able to search and create their own GIFs and Stickers. You can maybe fetch gifs online when someone searches and siplay them there, just like whatsapp.
+1. Remove AI you added, also remove admin pannel for now, i'll provide that later
+2. The size of card/posts in feed should be exactly the same as the cards in instagram, so should their ratio.
+3. The picture, etc uploaded should be compressed, so they render fast on server. So that the picture automtically crops on area/ratio of picture. Like viewing the picture doesnt show full but clicking it shows full but it needs to be compressed so that it crops. No matter if the whole image is uplaoded, but the cheapcopy should be ther so that it is useful in quick review. In conclusion, make such strategy so the images quickly render and not take long
+4. When the videos autplay in feed, they should be unmute by default and have a button there to mute/unmute
+5. Dark mode didnt properly apply to the messages section and whole create section (also inside it like posts, reel, story)

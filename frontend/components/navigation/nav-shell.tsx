@@ -16,6 +16,7 @@ import {
   IconBookmark,
   IconChevronLeft,
   IconCirclePlus,
+  IconCompass,
   IconFlag3,
   IconHome2,
   IconLogout2,
@@ -25,6 +26,7 @@ import {
   IconMovie,
   IconSearch,
   IconSettings,
+  IconShield,
   IconSun,
   IconVideo,
   IconX,
@@ -309,7 +311,10 @@ export function NavShell({ children }: { children: React.ReactNode }) {
             <div className={`flex h-10 items-center ${sidebarExpanded ? 'justify-between px-2' : 'justify-center'}`}>
               {sidebarExpanded ? (
                 <>
-                  <Image src="/logo.png" alt="Sprygram" width={36} height={36} className="rounded-xl" priority />
+                  <Group gap={9} align="center" wrap="nowrap">
+                    <Image src="/logo.png" alt="Sprygram" width={36} height={36} className="rounded-xl" priority />
+                    <Text fw={800} size="md" className="leading-none tracking-tight">Sprygram</Text>
+                  </Group>
                   <button
                     type="button"
                     className="rounded-lg p-1 hover:bg-hover"
@@ -356,6 +361,18 @@ export function NavShell({ children }: { children: React.ReactNode }) {
               >
                 <IconMovie size={22} stroke={(!panelMode && routeIsActive(pathname, '/reels')) ? 2.3 : 1.9} />
                 {sidebarExpanded ? <Text size="sm" fw={(!panelMode && routeIsActive(pathname, '/reels')) ? 700 : 500}>Reels</Text> : null}
+              </Link>
+
+              <Link
+                href="/explore"
+                onClick={closePanels}
+                prefetch={false}
+                title="Explore"
+                aria-label="Explore"
+                className={`flex h-12 items-center rounded-lg py-2.5 ${sidebarExpanded ? 'gap-3 px-3 justify-start' : 'justify-center px-0'} ${(!panelMode && routeIsActive(pathname, '/explore')) ? ACTIVE_NAV_CLASS : IDLE_NAV_CLASS}`}
+              >
+                <IconCompass size={22} stroke={(!panelMode && routeIsActive(pathname, '/explore')) ? 2.3 : 1.9} />
+                {sidebarExpanded ? <Text size="sm" fw={(!panelMode && routeIsActive(pathname, '/explore')) ? 700 : 500}>Explore</Text> : null}
               </Link>
 
               <Link
@@ -673,10 +690,10 @@ export function NavShell({ children }: { children: React.ReactNode }) {
           <IconHome2 size={24} stroke={routeIsActive(pathname, '/feed') ? 2.3 : 1.8} />
           <span className="text-[9px] font-medium">Home</span>
         </Link>
-        <button type="button" onClick={openSearch} title="Search" aria-label="Search" className={`flex flex-col items-center gap-0.5 px-3 py-1 ${searchOpen ? 'text-[var(--spry-accent)]' : 'text-[var(--spry-nav-text)]'}`}>
-          <IconSearch size={24} stroke={searchOpen ? 2.3 : 1.8} />
-          <span className="text-[9px] font-medium">Search</span>
-        </button>
+        <Link href="/explore" onClick={closePanels} title="Explore" aria-label="Explore" className={`flex flex-col items-center gap-0.5 px-3 py-1 ${routeIsActive(pathname, '/explore') ? 'text-[var(--spry-accent)]' : 'text-[var(--spry-nav-text)]'}`}>
+          <IconCompass size={24} stroke={routeIsActive(pathname, '/explore') ? 2.3 : 1.8} />
+          <span className="text-[9px] font-medium">Explore</span>
+        </Link>
         <Link href="/create" onClick={closePanels} title="Create" aria-label="Create" className={`flex flex-col items-center gap-0.5 px-3 py-1 ${routeIsActive(pathname, '/create') ? 'text-[var(--spry-accent)]' : 'text-[var(--spry-nav-text)]'}`}>
           <IconCirclePlus size={26} stroke={routeIsActive(pathname, '/create') ? 2.3 : 1.8} />
           <span className="text-[9px] font-medium">Create</span>

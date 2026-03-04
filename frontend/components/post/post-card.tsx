@@ -2,11 +2,14 @@
 
 import {
   ActionIcon,
+  Button,
   Group,
   Menu,
   Modal,
+  Radio,
   Stack,
   Text,
+  Textarea,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -25,6 +28,7 @@ import {
   IconUserMinus,
 } from '@tabler/icons-react';
 import Link from 'next/link';
+import { playLikeSound } from '@/lib/sounds';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { sprygramApi } from '@/lib/api-client';
@@ -58,6 +62,10 @@ export function PostCard({
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
   const [saved, setSaved] = useState(false);
   const [favoritedAuthor, setFavoritedAuthor] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState('spam');
+  const [reportDetails, setReportDetails] = useState('');
+  const [reportSubmitting, setReportSubmitting] = useState(false);
   const [liking, setLiking] = useState(false);
   const [likePulse, setLikePulse] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
@@ -101,12 +109,20 @@ export function PostCard({
     ? `/p/${post.id}`
     : new URL(`/p/${post.id}`, window.location.origin).toString();
 
-  const handleReport = async () => {
+  const handleReport = () => setReportOpen(true);
+
+  const submitReport = async () => {
+    setReportSubmitting(true);
     try {
-      await sprygramApi.submitReport({ entityType: 'post', entityId: post.id, reason: 'other' }, auth);
-      notifications.show({ color: 'orange', title: 'Reported', message: 'Your report has been submitted. We will review it shortly.' });
+      await sprygramApi.submitReport({ entityType: 'post', entityId: post.id, reason: reportReason }, auth);
+      notifications.show({ color: 'orange', title: 'Report submitted', message: 'Thank you. Our team will review this content.' });
+      setReportOpen(false);
+      setReportReason('spam');
+      setReportDetails('');
     } catch (error: any) {
       notifications.show({ color: 'red', title: 'Report failed', message: error.message });
+    } finally {
+      setReportSubmitting(false);
     }
   };
 
@@ -116,6 +132,7 @@ export function PostCard({
     setLikePulse(true);
 
     const optimisticLiked = !post.isLiked;
+    if (optimisticLiked) playLikeSound();
     const optimisticCount = optimisticLiked ? post.likeCount + 1 : Math.max(0, post.likeCount - 1);
     patch({ isLiked: optimisticLiked, likeCount: optimisticCount });
 
@@ -316,13 +333,13 @@ export function PostCard({
         </header>
 
         <div className="relative">
-          {media ? <MediaView media={media} /> : null}
+          {media ? <MediaView media={media} onVideoClick={media.mediaType === 'video' ? () => router.push('/reels') : undefined} forcePaused={commentsOpen || shareOpen} /> : null}
 
           {canSlide ? (
             <>
               <button
                 type="button"
-                className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-white/90 px-2 py-1 text-xs"
+                className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/50 px-2 py-1 text-xs text-white backdrop-blur-sm"
                 onClick={() => setActiveMediaIndex((prev) => Math.max(0, prev - 1))}
                 disabled={activeMediaIndex === 0}
               >
@@ -330,7 +347,7 @@ export function PostCard({
               </button>
               <button
                 type="button"
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-white/90 px-2 py-1 text-xs"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/50 px-2 py-1 text-xs text-white backdrop-blur-sm"
                 onClick={() => setActiveMediaIndex((prev) => Math.min(post.media.length - 1, prev + 1))}
                 disabled={activeMediaIndex === post.media.length - 1}
               >
@@ -348,6 +365,13 @@ export function PostCard({
             </>
           ) : null}
 
+          {commentsOpen && (
+            <div
+              className="absolute inset-0 z-10"
+              onClick={() => setCommentsOpen(false)}
+              aria-label="Close comments"
+            />
+          )}
           <CommentsModal
             opened={commentsOpen}
             postId={post.id}
@@ -387,7 +411,7 @@ export function PostCard({
             <button type="button" className="w-fit text-xs text-muted" onClick={() => setCommentsOpen((prev) => !prev)}>
               {commentsOpen ? 'Hide comments' : `View all ${post.commentCount} comments`}
             </button>
-            <Text size="xs" c="dimmed" tt="uppercase">{formatRelativeTimeWithSuffix(post.createdAt)}</Text>
+            <Text size="xs" c="dimmed">{formatRelativeTimeWithSuffix(post.createdAt)}</Text>
           </Stack>
         </section>
       </article>
@@ -425,6 +449,48 @@ export function PostCard({
         title="post"
         shareText={post.caption || `View @${post.author.username}'s post on Sprygram.`}
       />
+
+      <Modal
+        opened={reportOpen}
+        onClose={() => setReportOpen(false)}
+        title="Report post"
+        centered
+        size="md"
+      >
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            Tell us what's wrong with this post. Your report will be reviewed by our team and kept confidential.
+          </Text>
+          <Radio.Group
+            value={reportReason}
+            onChange={setReportReason}
+            label="Select a reason"
+          >
+            <Stack gap="xs" mt="xs">
+              <Radio value="spam" label="Spam or misleading content" />
+              <Radio value="nudity" label="Nudity or sexual content" />
+              <Radio value="hate_speech" label="Hate speech or discrimination" />
+              <Radio value="violence" label="Violence or dangerous content" />
+              <Radio value="misinformation" label="False information" />
+              <Radio value="harassment" label="Harassment or bullying" />
+              <Radio value="other" label="Other" />
+            </Stack>
+          </Radio.Group>
+          <Textarea
+            label="Additional details (optional)"
+            placeholder="Describe the issue in more detail..."
+            value={reportDetails}
+            onChange={(e) => setReportDetails(e.currentTarget.value)}
+            minRows={2}
+            maxRows={4}
+            maxLength={500}
+          />
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setReportOpen(false)}>Cancel</Button>
+            <Button color="red" loading={reportSubmitting} onClick={() => void submitReport()}>Submit report</Button>
+          </Group>
+        </Stack>
+      </Modal>
     </>
   );
 }

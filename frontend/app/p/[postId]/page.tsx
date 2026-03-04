@@ -1,123 +1,67 @@
 'use client';
 
-import { Group, Stack, Text } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
+import { use } from 'react';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { FollowRequestsPanel } from '@/components/profile/follow-requests-panel';
-import { EmptyState } from '@/components/ui/empty-state';
+import { ActionIcon, Group, Text } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
+import { IconArrowLeft } from '@tabler/icons-react';
+import { PostCard } from '@/components/post/post-card';
 import { LoadingState } from '@/components/ui/loading-state';
+import { EmptyState } from '@/components/ui/empty-state';
 import { sprygramApi } from '@/lib/api-client';
-import type { NotificationItem } from '@/lib/api-types';
-import { formatRelativeTime } from '@/lib/time';
+import type { SprygramPost, SprygramProfile } from '@/lib/api-types';
 import { useApiAuth } from '@/lib/use-api-auth';
 import { useDevAuth } from '@/lib/dev-auth-context';
-import { ProfileAvatar } from '@/components/ui/profile-avatar';
 
-export default function NotificationsPage() {
+export default function PostDetailPage({ params }: { params: Promise<{ postId: string }> }) {
+  const { postId } = use(params);
   const auth = useApiAuth();
   const router = useRouter();
   const { isReady, activeIdentity } = useDevAuth();
 
-  const [loading, setLoading] = useState(false);
-  const [items, setItems] = useState<NotificationItem[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-
-  const load = async (cursor?: string | null) => {
-    if (!cursor) setLoading(true);
-    try {
-      const response = await sprygramApi.getNotifications({ limit: 30, cursor: cursor || undefined }, auth);
-      setItems((previous) => (cursor ? [...previous, ...(response.items || [])] : (response.items || [])));
-      setNextCursor(response.nextCursor);
-    } catch (error: any) {
-      notifications.show({ color: 'red', title: 'Notifications error', message: error.message });
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [loading, setLoading] = useState(true);
+  const [post, setPost] = useState<SprygramPost | null>(null);
+  const [viewer, setViewer] = useState<SprygramProfile | null>(null);
 
   useEffect(() => {
     if (!isReady || !auth.token) return;
-    void load();
-  }, [isReady, activeIdentity?.id, auth.token, auth.workspaceId]);
+    setLoading(true);
+    Promise.all([
+      sprygramApi.getPost(postId, auth).catch(() => null),
+      sprygramApi.getMyProfile(auth).catch(() => null),
+    ]).then(([fetchedPost, me]) => {
+      setPost(fetchedPost);
+      setViewer(me);
+    }).catch((err: any) => {
+      notifications.show({ color: 'red', title: 'Error', message: err.message });
+    }).finally(() => setLoading(false));
+  }, [isReady, activeIdentity?.id, auth.token, auth.workspaceId, postId]);
 
-  if (!isReady || loading) return <LoadingState message="Loading notifications..." />;
+  if (!isReady || loading) return <LoadingState message="Loading post..." />;
+
+  if (!post) {
+    return (
+      <div className="mx-auto flex min-h-screen max-w-[640px] items-center justify-center px-4">
+        <EmptyState title="Post not found" description="This post may have been removed or doesn't exist." />
+      </div>
+    );
+  }
 
   return (
-    <div className="mx-auto w-full max-w-[760px] px-6 py-6">
-      <Stack gap="md">
-        <Group justify="space-between">
-          <Text fw={800} size="xl">Notifications</Text>
-          <button
-            type="button"
-            className="text-sm font-semibold text-[#0095f6]"
-            onClick={async () => {
-              await sprygramApi.markNotificationsReadAll(auth);
-              setItems((previous) => previous.map((entry) => ({ ...entry, isRead: true })));
-            }}
-          >
-            Mark all as read
-          </button>
-        </Group>
+    <div className="mx-auto w-full max-w-[640px] px-4 py-6">
+      <Group mb="md" gap="xs">
+        <ActionIcon variant="subtle" color="dark" radius="xl" onClick={() => router.back()} aria-label="Go back">
+          <IconArrowLeft size={20} />
+        </ActionIcon>
+        <Text fw={700} size="lg">Post</Text>
+      </Group>
 
-        <FollowRequestsPanel />
-
-        {items.length === 0 ? (
-          <EmptyState
-            title="No notifications yet"
-            description="Likes, comments, follows, and messages will appear here."
-          />
-        ) : (
-          <Stack gap="xs">
-            {items.map((item) => {
-              const isPostLinked = (item.type === 'comment' || item.type === 'like') && item.entityId;
-              return (
-                <div
-                  key={item.id}
-                  className={`rounded-xl border border-border bg-panel p-3 ${item.isRead ? '' : 'border-[#dbeafe] bg-[#f8fbff]'} ${isPostLinked ? 'cursor-pointer transition hover:bg-gray-50' : ''}`}
-                  onClick={isPostLinked ? () => router.push(`/p/${item.entityId}`) : undefined}
-                >
-                  <Group wrap="nowrap" align="flex-start">
-                    <button
-                      type="button"
-                      className="shrink-0"
-                      onClick={(e) => { e.stopPropagation(); if (item.actor?.username) router.push(`/u/${item.actor.username}`); }}
-                      aria-label={`View ${item.actor?.username ?? 'account'}'s profile`}
-                    >
-                      <ProfileAvatar size={38} src={item.actor?.avatarUrl} name={item.actor?.displayName || item.actor?.username || 'Sprygram'} />
-                    </button>
-                    <Stack gap={1} className="min-w-0">
-                      <Text size="sm" lineClamp={2}>
-                        <button
-                          type="button"
-                          className="font-semibold hover:underline"
-                          onClick={(e) => { e.stopPropagation(); if (item.actor?.username) router.push(`/u/${item.actor.username}`); }}
-                        >
-                          {item.actor?.username || 'Sprygram'}
-                        </button>{' '}
-                        {item.previewText || item.type.replace('_', ' ')}
-                      </Text>
-                      <Text size="xs" c="dimmed">{formatRelativeTime(item.createdAt)}</Text>
-                    </Stack>
-                  </Group>
-                </div>
-              );
-            })}
-
-            {nextCursor ? (
-              <Group justify="center">
-                <button
-                  type="button"
-                  className="rounded-md border border-border px-3 py-2 text-sm hover:bg-gray-50"
-                  onClick={() => void load(nextCursor)}
-                >
-                  Load more
-                </button>
-              </Group>
-            ) : null}
-          </Stack>
-        )}
-      </Stack>
+      <PostCard
+        post={post}
+        viewer={viewer}
+        onPostChange={(updated) => setPost(updated)}
+      />
     </div>
   );
 }

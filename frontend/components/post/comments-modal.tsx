@@ -74,10 +74,10 @@ export function CommentsModal({
       {(styles) => (
         <div
           style={styles}
-          className={`absolute inset-x-0 bottom-0 top-1/2 z-20 overflow-hidden rounded-t-[22px] border-t border-white/40 bg-white/97 shadow-[0_-20px_40px_rgba(15,23,42,0.18)] backdrop-blur ${className}`.trim()}
+          className={`absolute inset-x-0 bottom-0 top-1/2 z-20 overflow-hidden rounded-t-[22px] border-t border-[#e5e5e5] bg-white shadow-[0_-20px_40px_rgba(15,23,42,0.18)] dark:border-[#333] dark:bg-[#1c1c1c] ${className}`.trim()}
         >
           <div className="flex h-full flex-col">
-            <div className="border-b border-[#efefef] px-4 py-3">
+            <div className="border-b border-[#efefef] px-4 py-3 dark:border-[#333]">
               <Group justify="space-between">
                 <Text size="sm" fw={700}>Comments</Text>
                 <ActionIcon variant="subtle" color="gray" onClick={onClose} aria-label="Close comments" title="Close comments">
@@ -141,7 +141,7 @@ export function CommentsModal({
               )}
             </div>
 
-            <div className="border-t border-[#efefef] px-4 py-3">
+            <div className="border-t border-[#efefef] px-4 py-3 dark:border-[#333]">
               <Group align="flex-end" wrap="nowrap">
                 <TextInput
                   value={content}
